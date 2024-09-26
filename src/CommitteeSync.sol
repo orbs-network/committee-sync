@@ -38,7 +38,7 @@ contract CommitteeSync is AccessControl, ReentrancyGuard {
     // Events
     event CommitteeUpdated(address[] newCommittee);
     event ProposalSubmitted(bytes32 proposalHash);
-    
+
     event ProposalApproved(bytes32 proposalHash);
 
     /**
