@@ -49,14 +49,6 @@ contract CommitteeSync is AccessControl, ReentrancyGuard {
 
         _setCommittee(initialCommittee);
 
-        // Grant COMMITTEE_ROLE to each initial committee member
-
-        for (uint256 i = 0; i < initialCommittee.length; i++) {
-
-            _grantRole(COMMITTEE_ROLE, initialCommittee[i]);
-
-        }
-
     }
 
     /**
@@ -95,11 +87,14 @@ contract CommitteeSync is AccessControl, ReentrancyGuard {
             proposalHashes.push(proposalHash);
 
             emit ProposalSubmitted(proposalHash);
-
         }
 
-        // Check if sender has already approved
         Proposal storage existingProposal = proposals[proposalHash];
+
+        // Check if proposal is expired
+        require(block.timestamp <= existingProposal.proposalDeadline, "Proposal has expired");
+
+        // Check if sender has already approved
         require(!existingProposal.hasApproved[msg.sender], "Already approved");
 
         // Mark sender's approval
@@ -107,17 +102,14 @@ contract CommitteeSync is AccessControl, ReentrancyGuard {
         existingProposal.approvals++;
 
         // Check if enough approvals to update the committee
-        if (existingProposal.approvals >= currentCommittee.length / 2) {
+        if (existingProposal.approvals >= ((currentCommittee.length * 70) / 100)) {
 
             _setCommittee(existingProposal.newCommittee);
 
             emit CommitteeUpdated(existingProposal.newCommittee);
 
             // Clean up proposal
-            delete proposals[proposalHash];
-
-            // Remove from proposalHashes list
-            _removeProposalHash(proposalHash);
+            _removeProposal(proposalHash);
 
         }
 
@@ -125,8 +117,8 @@ contract CommitteeSync is AccessControl, ReentrancyGuard {
 
         // Call maintenance to clean up expired data
         maintenance();
-
     }
+
 
     /**
      * @notice Cleans up expired proposals to reduce contract state size.
@@ -134,26 +126,21 @@ contract CommitteeSync is AccessControl, ReentrancyGuard {
      */
     function maintenance() public nonReentrant {
 
-        // Iterate only over the existing proposals in proposalHashes
+        // Iterate over the existing proposals in proposalHashes backwards
+        for (uint256 i = proposalHashes.length; i > 0; i--) {
 
-        for (uint256 i = 0; i < proposalHashes.length; i++) {
-
-            bytes32 proposalHash = proposalHashes[i];
+            bytes32 proposalHash = proposalHashes[i - 1];
+            // Access from the end of the array
 
             Proposal storage proposal = proposals[proposalHash];
 
             if (proposal.proposalDeadline != 0 && block.timestamp > proposal.proposalDeadline) {
 
-                // Delete the expired proposal
-                delete proposals[proposalHash];
-
-                // Remove from proposalHashes list
-                _removeProposalHash(proposalHash);
-
-                // Adjust index after deletion
-                i--;
+                // Clean up proposal
+                _removeProposal(proposalHash);
 
             }
+
         }
     }
 
@@ -174,6 +161,23 @@ contract CommitteeSync is AccessControl, ReentrancyGuard {
         for (uint256 j = 0; j < newCommittee.length; j++) {
             _grantRole(COMMITTEE_ROLE, newCommittee[j]);
         }
+
+    }
+
+    /**
+     * @dev Internal function to remove a proposal from the contract's state.
+     * This function deletes the proposal from the `proposals` mapping and
+     * removes its hash from the `proposalHashes` tracking array.
+     *
+     * @param proposalHash The hash of the proposal to be removed.
+     */
+    function _removeProposal(bytes32 proposalHash) internal {
+
+        // Clean up proposal from proposals mapping
+        delete proposals[proposalHash];
+
+        // Remove from proposalHashes list
+        _removeProposalHash(proposalHash);
 
     }
 

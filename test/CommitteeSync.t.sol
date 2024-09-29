@@ -11,7 +11,7 @@ contract CommitteeSyncTest is Test {
     CommitteeSync public committeeSync;
     address[] public initialCommittee;
     uint256 public constant THRESHOLD = 2; // 2 approvals needed for the test
-    uint256 public constant PROPOSAL_EXPIRATION = 1 days;
+    uint256 public constant PROPOSAL_DEADLINE = 1 days;
 
     // Committee member private keys (for signing)
     uint256[] private committeePrivateKeys;
@@ -54,7 +54,7 @@ contract CommitteeSyncTest is Test {
 
     function testSubmitProposal() public {
         // New committee members
-        address[] memory newCommittee;
+        address[] memory newCommittee = new address[](2);
         newCommittee[0] = address(4);
         newCommittee[1] = address(5);
 
@@ -73,7 +73,7 @@ contract CommitteeSyncTest is Test {
         bytes32 proposalHash = keccak256(abi.encode(newCommittee));
         (address[] memory proposedCommittee, uint256 proposalDeadline, uint256 approvals) = committeeSync.getProposal(proposalHash);
 
-        assertEq(proposalDeadline, approvalDeadline, "Proposal deadline not set correctly");
+        assertEq(proposalDeadline, block.timestamp + PROPOSAL_DEADLINE, "Proposal deadline not set correctly");
         assertEq(approvals, 1, "Initial approval count should be 1");
         assertEq(proposedCommittee.length, newCommittee.length, "Proposed committee size mismatch");
 
@@ -151,13 +151,12 @@ contract CommitteeSyncTest is Test {
         vm.stopPrank();
 
         // Increase time beyond the proposal deadline
-        vm.warp(block.timestamp + PROPOSAL_EXPIRATION + 1);
+        vm.warp(block.timestamp + PROPOSAL_DEADLINE + 10);
 
-        // Attempt to approve the expired proposal
+        // Expect revert before calling the next `proposeOrApprove` function
         vm.startPrank(initialCommittee[1]);
-        vm.expectRevert("Proposal deadline has passed");
+        vm.expectRevert("Proposal has expired");
         committeeSync.proposeOrApprove(newCommittee, block.timestamp + 1 hours);
-        // Using new deadline
         vm.stopPrank();
     }
 
@@ -175,13 +174,18 @@ contract CommitteeSyncTest is Test {
         // Attempt to submit a proposal from a non-committee member
         vm.startPrank(nonCommitteeMember);
         vm.expectRevert("Not a committee member");
+
         committeeSync.proposeOrApprove(newCommittee, approvalDeadline);
+
         vm.stopPrank();
+
     }
 
     function testMaintenanceCleansUpExpiredProposals() public {
+
         // New committee members
         address[] memory newCommittee = new address[](2);
+
         newCommittee[0] = address(4);
         newCommittee[1] = address(5);
 
@@ -193,7 +197,7 @@ contract CommitteeSyncTest is Test {
         vm.stopPrank();
 
         // Increase time beyond the proposal deadline
-        vm.warp(block.timestamp + PROPOSAL_EXPIRATION + 1);
+        vm.warp(block.timestamp + PROPOSAL_DEADLINE + 10);
 
         // Call maintenance to clean up expired proposals
         committeeSync.maintenance();
@@ -203,6 +207,8 @@ contract CommitteeSyncTest is Test {
 
         // Try to get the proposal, expect it to revert
         vm.expectRevert("Proposal does not exist");
+
         committeeSync.getProposal(proposalHash);
+
     }
 }
