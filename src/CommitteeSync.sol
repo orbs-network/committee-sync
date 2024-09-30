@@ -34,6 +34,7 @@ contract CommitteeSync is AccessControl, ReentrancyGuard {
     // Constants
     uint256 public constant PROPOSAL_DEADLINE = 1 days; // Default proposal validity period
     uint256 public constant MAX_COMMITTEE_SIZE = 100;   // Maximum allowed committee size
+    uint256 public constant APPROVAL_THRESHOLD_PCT = 70;   // Approval threshold in percentage
 
     // Events
     event CommitteeUpdated(address[] newCommittee);
@@ -102,7 +103,7 @@ contract CommitteeSync is AccessControl, ReentrancyGuard {
         existingProposal.approvals++;
 
         // Check if enough approvals to update the committee
-        if (existingProposal.approvals >= ((currentCommittee.length * 70) / 100)) {
+        if (existingProposal.approvals >= ((currentCommittee.length * APPROVAL_THRESHOLD_PCT) / 100)) {
 
             _setCommittee(existingProposal.newCommittee);
 
