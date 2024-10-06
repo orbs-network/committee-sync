@@ -40,7 +40,7 @@ contract CommitteeSyncTest is Test {
         vm.stopPrank();
     }
 
-    function testInitialSetup() public {
+    function testInitialSetup() public view {
         // Verify that initial committee members are set correctly
         for (uint256 i = 0; i < initialCommittee.length; i++) {
             assertTrue(
@@ -93,8 +93,8 @@ contract CommitteeSyncTest is Test {
         uint256 approvalDeadline = block.timestamp + 1 hours;
 
         // Check initial committee
-        address[] memory initialCommitteeMembers = committeeSync.getCurrentCommittee();
-        console.log("Initial committee size:", initialCommitteeMembers.length);
+        //address[] memory initialCommitteeMembers = committeeSync.getCurrentCommittee();
+        //console.log("Initial committee size:", initialCommitteeMembers.length);
 
         // Submit the proposal with the first committee member
         vm.startPrank(initialCommittee[0]);
@@ -102,28 +102,28 @@ contract CommitteeSyncTest is Test {
         vm.stopPrank();
 
         // Check committee after first approval
-        address[] memory committeeAfterFirstApproval = committeeSync.getCurrentCommittee();
-        console.log("Committee size after first approval:", committeeAfterFirstApproval.length);
+        //address[] memory committeeAfterFirstApproval = committeeSync.getCurrentCommittee();
+        //console.log("Committee size after first approval:", committeeAfterFirstApproval.length);
 
         // Check if initialCommittee[1] is still a committee member
-        bool isStillCommitteeMember = committeeSync.hasRole(committeeSync.COMMITTEE_ROLE(), initialCommittee[1]);
-        console.log("Is initialCommittee[1] still a committee member?", isStillCommitteeMember);
+        //bool isStillCommitteeMember = committeeSync.hasRole(committeeSync.COMMITTEE_ROLE(), initialCommittee[1]);
+        //console.log("Is initialCommittee[1] still a committee member?", isStillCommitteeMember);
 
         // Approve the proposal with the second committee member
         vm.startPrank(initialCommittee[1]);
         try committeeSync.proposeOrApprove(newCommittee, approvalDeadline) {
-            console.log("Second approval succeeded");
-        } catch Error(string memory reason) {
-            console.log("Second approval failed:", reason);
+            //console.log("Second approval succeeded");
+        } catch Error(string memory) {
+            //console.log("Second approval failed:", reason);
         }
         vm.stopPrank();
 
         // Verify final committee state
         address[] memory updatedCommittee = committeeSync.getCurrentCommittee();
-        console.log("Final committee size:", updatedCommittee.length);
+        //console.log("Final committee size:", updatedCommittee.length);
 
         for (uint256 i = 0; i < updatedCommittee.length; i++) {
-            console.log("Committee member", i, ":", updatedCommittee[i]);
+            //console.log("Committee member", i, ":", updatedCommittee[i]);
         }
 
         // Assertions

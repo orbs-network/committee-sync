@@ -1,0 +1,6 @@
+CommitteeSyncTest:testApproveProposal() (gas: 270635)
+CommitteeSyncTest:testInitialSetup() (gas: 42006)
+CommitteeSyncTest:testMaintenanceCleansUpExpiredProposals() (gas: 170064)
+CommitteeSyncTest:testNonCommitteeMemberCannotPropose() (gas: 14728)
+CommitteeSyncTest:testProposalExpired() (gas: 212036)
+CommitteeSyncTest:testSubmitProposal() (gas: 211399)
