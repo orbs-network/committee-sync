@@ -1,18 +1,12 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.x;
 
-import {Script, console} from "forge-std/Script.sol";
-import "../src/CommitteeSync.sol";
+import "forge-std/Script.sol";
 
-contract CounterScript is Script {
-    CommitteeSync public committeeSync;
+import "src/CommitteeSync.sol";
 
-    function setUp() public {}
-
+contract Deploy is Script {
     function run() public {
-        vm.startBroadcast();
-
-
-        vm.stopBroadcast();
+        //
     }
 }

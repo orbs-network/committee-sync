@@ -1,2 +1,1 @@
-clear
-forge clean && forge build && forge test
+forge fmt && forge test

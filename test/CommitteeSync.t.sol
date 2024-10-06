@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.27;
+pragma solidity 0.8.x;
 
 import "forge-std/Test.sol";
 import "../src/CommitteeSync.sol";
@@ -41,15 +41,16 @@ contract CommitteeSyncTest is Test {
     }
 
     function testInitialSetup() public {
-
         // Verify that initial committee members are set correctly
         for (uint256 i = 0; i < initialCommittee.length; i++) {
-            assertTrue(committeeSync.hasRole(committeeSync.COMMITTEE_ROLE(), initialCommittee[i]), "Initial committee member not set");
+            assertTrue(
+                committeeSync.hasRole(committeeSync.COMMITTEE_ROLE(), initialCommittee[i]),
+                "Initial committee member not set"
+            );
         }
 
         // Verify that the committee size is correct
         assertEq(committeeSync.getCurrentCommittee().length, initialCommittee.length, "Incorrect committee size");
-
     }
 
     function testSubmitProposal() public {
@@ -71,20 +72,19 @@ contract CommitteeSyncTest is Test {
 
         // Verify the proposal exists
         bytes32 proposalHash = keccak256(abi.encode(newCommittee));
-        (address[] memory proposedCommittee, uint256 proposalDeadline, uint256 approvals) = committeeSync.getProposal(proposalHash);
+        (address[] memory proposedCommittee, uint256 proposalDeadline, uint256 approvals) =
+            committeeSync.getProposal(proposalHash);
 
         assertEq(proposalDeadline, block.timestamp + PROPOSAL_DEADLINE, "Proposal deadline not set correctly");
         assertEq(approvals, 1, "Initial approval count should be 1");
         assertEq(proposedCommittee.length, newCommittee.length, "Proposed committee size mismatch");
 
-        for (uint i = 0; i < newCommittee.length; i++) {
+        for (uint256 i = 0; i < newCommittee.length; i++) {
             assertEq(proposedCommittee[i], newCommittee[i], "Proposed committee member mismatch");
         }
-
     }
 
     function testApproveProposal() public {
-
         // New committee members
         address[] memory newCommittee = new address[](2);
         newCommittee[0] = address(4);
@@ -130,12 +130,13 @@ contract CommitteeSyncTest is Test {
         assertEq(updatedCommittee.length, newCommittee.length, "Committee size not updated");
 
         for (uint256 i = 0; i < newCommittee.length; i++) {
-            assertTrue(committeeSync.hasRole(committeeSync.COMMITTEE_ROLE(), newCommittee[i]), "New committee member not set");
+            assertTrue(
+                committeeSync.hasRole(committeeSync.COMMITTEE_ROLE(), newCommittee[i]), "New committee member not set"
+            );
         }
     }
 
     function testProposalExpired() public {
-
         // New committee members
         address[] memory newCommittee = new address[](2);
 
@@ -161,7 +162,6 @@ contract CommitteeSyncTest is Test {
     }
 
     function testNonCommitteeMemberCannotPropose() public {
-
         // New committee members
         address[] memory newCommittee = new address[](2);
 
@@ -178,11 +178,9 @@ contract CommitteeSyncTest is Test {
         committeeSync.proposeOrApprove(newCommittee, approvalDeadline);
 
         vm.stopPrank();
-
     }
 
     function testMaintenanceCleansUpExpiredProposals() public {
-
         // New committee members
         address[] memory newCommittee = new address[](2);
 
@@ -209,6 +207,5 @@ contract CommitteeSyncTest is Test {
         vm.expectRevert("Proposal does not exist");
 
         committeeSync.getProposal(proposalHash);
-
     }
 }
