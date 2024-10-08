@@ -2,213 +2,58 @@
 pragma solidity 0.8.x;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
- * @title CommitteeSync
- * @notice This contract manages a synchronized committee structure across different blockchains.
- *         It allows the committee members to propose and approve changes to the committee.
- * @dev The contract is designed to be secure and efficient, preventing reentrancy attacks and
- *      potential misuse. All committee operations are protected by role-based access control.
+ * This contract manages a synchronized committee structure across different blockchains.
+ * It allows the committee members to propose and approve changes to the committee.
  */
-contract CommitteeSync is AccessControl, ReentrancyGuard {
-    // Roles
-    bytes32 public constant COMMITTEE_ROLE = keccak256("COMMITTEE_ROLE");
+contract CommitteeSync {
+    uint256 public constant MAX_COMMITTEE_SIZE = type(uint8).max;
+    uint256 public constant MIN_COMMITTEE_SIZE = 3;
+    uint256 public constant THRESHOLD = 70;
 
-    // Current committee members
-    address[] public currentCommittee;
+    address[] public committee;
+    mapping(address => bytes32) public votes; // member => proposal
+    mapping(bytes32 => address[]) public proposals; // proposal => new committee
+    mapping(bytes32 => uint256) public counts; // proposal => count
 
-    // Proposals to change the committee
-    struct Proposal {
-        address[] newCommittee; // The proposed new committee members
-        uint256 proposalDeadline; // The deadline for the proposal to be valid
-        uint256 approvals; // The number of approvals the proposal has received
-        mapping(address => bool) hasApproved; // Tracks who has approved this proposal
-    }
+    event NewCommittee(address[] committee);
 
-    mapping(bytes32 => Proposal) public proposals;
-    bytes32[] public proposalHashes; // List to track existing proposals
+    error MembersOnly();
+    error InvalidCommittee();
+    error AlreadyVoted();
 
-    // Constants
-    uint256 public constant PROPOSAL_DEADLINE = 1 days; // Default proposal validity period
-    uint256 public constant MAX_COMMITTEE_SIZE = 100; // Maximum allowed committee size
-    uint256 public constant APPROVAL_THRESHOLD_PCT = 70; // Approval threshold in percentage
-
-    // Events
-    event CommitteeUpdated(address[] newCommittee);
-    event ProposalSubmitted(bytes32 proposalHash);
-
-    event ProposalApproved(bytes32 proposalHash);
-
-    /**
-     * @dev Initializes the contract with an initial committee.
-     * @param initialCommittee The initial set of committee members.
-     */
-    constructor(address[] memory initialCommittee) {
-        _setCommittee(initialCommittee);
-    }
-
-    /**
-     * @notice Returns the current committee members.
-     * @return The current committee members as an array of addresses.
-     */
-    function getCurrentCommittee() public view returns (address[] memory) {
-        return currentCommittee;
-    }
-
-    /**
-     * @notice Proposes a new committee or approves an existing proposal.
-     * @dev Only committee members can call this function. Each member can only approve once.
-     *      The `approvalDeadline` parameter ensures that a proposal cannot be approved after it has expired.
-     * @param newCommittee The proposed new committee members.
-     * @param approvalDeadline The deadline by which this approval must be submitted.
-     */
-    function proposeOrApprove(address[] memory newCommittee, uint256 approvalDeadline)
-        external
-        onlyCommittee
-        checkApprovalDeadline(approvalDeadline)
-    {
-        require(newCommittee.length > 0 && newCommittee.length <= MAX_COMMITTEE_SIZE, "Invalid committee size");
-
-        bytes32 proposalHash = keccak256(abi.encode(newCommittee));
-
-        // Check if proposal exists
-        if (proposals[proposalHash].proposalDeadline == 0) {
-            // Proposal doesn't exist, create a new one
-            Proposal storage proposal = proposals[proposalHash];
-
-            proposal.newCommittee = newCommittee;
-            proposal.proposalDeadline = block.timestamp + PROPOSAL_DEADLINE;
-
-            // Track the proposal hash
-            proposalHashes.push(proposalHash);
-
-            emit ProposalSubmitted(proposalHash);
-        }
-
-        Proposal storage existingProposal = proposals[proposalHash];
-
-        // Check if proposal is expired
-        require(block.timestamp <= existingProposal.proposalDeadline, "Proposal has expired");
-
-        // Check if sender has already approved
-        require(!existingProposal.hasApproved[msg.sender], "Already approved");
-
-        // Mark sender's approval
-        existingProposal.hasApproved[msg.sender] = true;
-        existingProposal.approvals++;
-
-        // Check if enough approvals to update the committee
-        if (existingProposal.approvals >= ((currentCommittee.length * APPROVAL_THRESHOLD_PCT) / 100)) {
-            _setCommittee(existingProposal.newCommittee);
-
-            emit CommitteeUpdated(existingProposal.newCommittee);
-
-            // Clean up proposal
-            _removeProposal(proposalHash);
-        }
-
-        emit ProposalApproved(proposalHash);
-
-        // Call maintenance to clean up expired data
-        maintenance();
-    }
-
-    /**
-     * @notice Cleans up expired proposals to reduce contract state size.
-     * @dev This function should be called periodically to remove expired proposals.
-     */
-    function maintenance() public nonReentrant {
-        // Iterate over the existing proposals in proposalHashes backwards
-        for (uint256 i = proposalHashes.length; i > 0; i--) {
-            bytes32 proposalHash = proposalHashes[i - 1];
-            // Access from the end of the array
-
-            Proposal storage proposal = proposals[proposalHash];
-
-            if (proposal.proposalDeadline != 0 && block.timestamp > proposal.proposalDeadline) {
-                // Clean up proposal
-                _removeProposal(proposalHash);
+    modifier membersOnly() {
+        for (uint8 i = 0; i < committee.length; i++) {
+            if (msg.sender == committee[i]) {
+                _;
+                return;
             }
         }
+        revert MembersOnly();
     }
 
-    /**
-     * @dev Internal function to set the current committee and update roles.
-     * @param newCommittee The new committee members.
-     */
-    function _setCommittee(address[] memory newCommittee) internal {
-        // Revoke COMMITTEE_ROLE from previous committee members
-        for (uint256 i = 0; i < currentCommittee.length; i++) {
-            _revokeRole(COMMITTEE_ROLE, currentCommittee[i]);
+    // TODO: deterministic init
+    constructor(address[] memory _committee) {
+        committee = _committee;
+    }
+
+    function sync(address[] memory _committee) external membersOnly {
+        if (_committee.length < MIN_COMMITTEE_SIZE || _committee.length > MAX_COMMITTEE_SIZE) {
+            revert InvalidCommittee();
         }
 
-        currentCommittee = newCommittee;
+        bytes32 proposal = keccak256(abi.encode(_committee));
 
-        // Grant COMMITTEE_ROLE to new committee members
-        for (uint256 j = 0; j < newCommittee.length; j++) {
-            _grantRole(COMMITTEE_ROLE, newCommittee[j]);
+        if (votes[msg.sender] == proposal) revert AlreadyVoted();
+
+        votes[msg.sender] = proposal;
+        proposals[proposal] = _committee;
+        counts[proposal]++;
+
+        if (counts[proposal] >= (committee.length * THRESHOLD) / 100) {
+            committee = _committee;
+            emit NewCommittee(committee);
         }
-    }
-
-    /**
-     * @dev Internal function to remove a proposal from the contract's state.
-     * This function deletes the proposal from the `proposals` mapping and
-     * removes its hash from the `proposalHashes` tracking array.
-     *
-     * @param proposalHash The hash of the proposal to be removed.
-     */
-    function _removeProposal(bytes32 proposalHash) internal {
-        // Clean up proposal from proposals mapping
-        delete proposals[proposalHash];
-
-        // Remove from proposalHashes list
-        _removeProposalHash(proposalHash);
-    }
-
-    /**
-     * @dev Internal function to remove a proposal hash from the tracking list.
-     * @param proposalHash The hash of the proposal to be removed.
-     */
-    function _removeProposalHash(bytes32 proposalHash) internal {
-        // Find the index of the proposalHash in the array and remove it
-
-        for (uint256 i = 0; i < proposalHashes.length; i++) {
-            if (proposalHashes[i] == proposalHash) {
-                proposalHashes[i] = proposalHashes[proposalHashes.length - 1];
-                proposalHashes.pop();
-                break;
-            }
-        }
-    }
-
-    /**
-     * @dev This function allows access to proposal details without exposing the entire struct
-     * @param proposalHash The keccak256 hash of the proposed committee members array
-     * @return newCommittee The array of proposed new committee members
-     * @return proposalDeadline The timestamp at which the proposal expires
-     * @return approvals The number of approvals the proposal has received
-     */
-    function getProposal(bytes32 proposalHash)
-        public
-        view
-        returns (address[] memory newCommittee, uint256 proposalDeadline, uint256 approvals)
-    {
-        Proposal storage proposal = proposals[proposalHash];
-
-        require(proposal.proposalDeadline != 0, "Proposal does not exist");
-
-        return (proposal.newCommittee, proposal.proposalDeadline, proposal.approvals);
-    }
-
-    modifier onlyCommittee() {
-        require(hasRole(COMMITTEE_ROLE, msg.sender), "Not a committee member");
-        _;
-    }
-
-    modifier checkApprovalDeadline(uint256 approvalDeadline) {
-        require(block.timestamp <= approvalDeadline, "Approval deadline has passed");
-        _;
     }
 }
