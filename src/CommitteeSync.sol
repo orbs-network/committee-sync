@@ -1,59 +1,67 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.x;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-
 /**
  * This contract manages a synchronized committee structure across different blockchains.
  * It allows the committee members to propose and approve changes to the committee.
  */
 contract CommitteeSync {
-    uint256 public constant MAX_COMMITTEE_SIZE = type(uint8).max;
-    uint256 public constant MIN_COMMITTEE_SIZE = 3;
+    uint256 public constant MAX_SIZE = type(uint8).max;
+    uint256 public constant MIN_SIZE = 3;
     uint256 public constant THRESHOLD = 70;
+    uint256 public constant PCNT = 100;
+    uint256 public constant EPOCH = 1 hours;
 
     address[] public committee;
     mapping(address => bytes32) public votes; // member => proposal
-    mapping(bytes32 => address[]) public proposals; // proposal => new committee
-    mapping(bytes32 => uint256) public counts; // proposal => count
+    mapping(bytes32 => uint256) public count; // proposal => count
 
-    event NewCommittee(address[] committee);
+    event Vote(address indexed member, bytes32 indexed proposal);
+    event NewCommittee(uint256 count, address[] committee);
 
     error MembersOnly();
     error InvalidCommittee();
-    error AlreadyVoted();
 
     modifier membersOnly() {
-        for (uint8 i = 0; i < committee.length; i++) {
-            if (msg.sender == committee[i]) {
-                _;
-                return;
-            }
-        }
-        revert MembersOnly();
+        if (committee.length > 0 && !isMember(msg.sender)) revert MembersOnly();
+        _;
     }
 
-    // TODO: deterministic init
-    constructor(address[] memory _committee) {
-        committee = _committee;
+    modifier validVote(address[] memory _committee) {
+        if (_committee.length < MIN_SIZE || _committee.length > MAX_SIZE) revert InvalidCommittee();
+        _;
     }
 
-    function sync(address[] memory _committee) external membersOnly {
-        if (_committee.length < MIN_COMMITTEE_SIZE || _committee.length > MAX_COMMITTEE_SIZE) {
-            revert InvalidCommittee();
-        }
+    constructor() {}
 
-        bytes32 proposal = keccak256(abi.encode(_committee));
+    function vote(address[] memory _committee) external membersOnly validVote(_committee) {
+        bytes32 proposal = keccak256(abi.encode((block.timestamp / EPOCH), _committee));
 
-        if (votes[msg.sender] == proposal) revert AlreadyVoted();
+        bytes32 previous = votes[msg.sender];
+        if (previous != 0 && count[previous] > 0) count[previous]--;
 
         votes[msg.sender] = proposal;
-        proposals[proposal] = _committee;
-        counts[proposal]++;
+        count[proposal]++;
+        emit Vote(msg.sender, proposal);
 
-        if (counts[proposal] >= (committee.length * THRESHOLD) / 100) {
+        uint256 _count = count[proposal];
+        if (_count >= (committee.length * THRESHOLD) / PCNT) {
+            count[proposal] = 0;
             committee = _committee;
-            emit NewCommittee(committee);
+            emit NewCommittee(_count, committee);
         }
+    }
+
+    function getCommittee() external view returns (address[] memory) {
+        return committee;
+    }
+
+    function isMember(address member) public view returns (bool) {
+        for (uint8 i = 0; i < committee.length; i++) {
+            if (member == committee[i]) {
+                return true;
+            }
+        }
+        return false;
     }
 }
