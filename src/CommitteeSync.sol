@@ -23,7 +23,7 @@ contract CommitteeSync {
     error InvalidCommittee();
 
     modifier membersOnly() {
-        if (committee.length > 0 && !isMember(msg.sender)) revert MembersOnly();
+        if (!isMember(msg.sender)) revert MembersOnly();
         _;
     }
 
@@ -32,7 +32,9 @@ contract CommitteeSync {
         _;
     }
 
-    constructor() {}
+    constructor(address initialMember) {
+        committee.push(initialMember);
+    }
 
     function vote(address[] memory _committee) external membersOnly validVote(_committee) {
         bytes32 proposal = keccak256(abi.encode((block.timestamp / EPOCH), _committee));

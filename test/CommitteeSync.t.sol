@@ -6,10 +6,13 @@ import "forge-std/Test.sol";
 import "src/CommitteeSync.sol";
 
 contract CommitteeSyncTest is Test {
+    address deployer;
     CommitteeSync public committeeSync;
 
     function setUp() public {
-        committeeSync = new CommitteeSync();
+        deployer = makeAddr("deployer");
+        hoax(deployer);
+        committeeSync = new CommitteeSync{salt: 0}(deployer);
     }
 
     function arr(uint256 m0, uint256 m1, uint256 m2) internal pure returns (address[] memory newCommittee) {
@@ -19,15 +22,21 @@ contract CommitteeSyncTest is Test {
         newCommittee[2] = address(uint160(m2));
     }
 
-    function test_emptyCommittee() public {
-        assertEq(committeeSync.getCommittee().length, 0);
+    function test_deployerAffectsAddress() public {
+        CommitteeSync committeeSync2 = new CommitteeSync{salt: 0}(makeAddr("deployer2"));
+        assertNotEq(address(committeeSync), address(committeeSync2));
+    }
+
+    function test_initialDeployerOnlyCommittee() public {
+        assertEq(committeeSync.getCommittee().length, 1);
+        assertEq(committeeSync.getCommittee()[0], deployer);
+        hoax(deployer);
         committeeSync.vote(arr(1, 2, 3));
         assertEq(committeeSync.getCommittee().length, 3);
         assertEq(committeeSync.getCommittee(), arr(1, 2, 3));
     }
 
     function test_revert_membersOnly() public {
-        committeeSync.vote(arr(1, 2, 3));
         vm.expectRevert(CommitteeSync.MembersOnly.selector);
         hoax(address(4));
         committeeSync.vote(arr(1, 2, 3));
@@ -35,16 +44,21 @@ contract CommitteeSyncTest is Test {
 
     function test_revert_invalidCommittee() public {
         vm.expectRevert(CommitteeSync.InvalidCommittee.selector);
+        hoax(deployer);
         committeeSync.vote(new address[](0));
         vm.expectRevert(CommitteeSync.InvalidCommittee.selector);
+        hoax(deployer);
         committeeSync.vote(new address[](1));
         vm.expectRevert(CommitteeSync.InvalidCommittee.selector);
+        hoax(deployer);
         committeeSync.vote(new address[](2));
         vm.expectRevert(CommitteeSync.InvalidCommittee.selector);
+        hoax(deployer);
         committeeSync.vote(new address[](256));
     }
 
     function test_vote_majority() public {
+        hoax(deployer);
         committeeSync.vote(arr(1, 2, 3));
 
         hoax(address(1));
@@ -55,6 +69,7 @@ contract CommitteeSyncTest is Test {
     }
 
     function test_vote_perEpoch() public {
+        hoax(deployer);
         committeeSync.vote(arr(1, 2, 3));
 
         vm.warp(block.timestamp + 1 hours + 59 minutes);
