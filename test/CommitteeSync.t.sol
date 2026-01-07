@@ -9,7 +9,6 @@ contract CommitteeSyncTest is Test {
     address deployer;
     uint256 deployerKey;
     CommitteeSync public committeeSync;
-    bytes32 private constant PROPOSAL_TYPEHASH = keccak256("Proposal(uint256 epoch,address[] committee)");
 
     function setUp() public {
         deployerKey = 0xA11CE;
@@ -44,12 +43,8 @@ contract CommitteeSyncTest is Test {
     }
 
     function signProposal(uint256 signerKey, address[] memory newCommittee) internal view returns (bytes memory) {
-        bytes32 structHash = keccak256(
-            abi.encode(
-                PROPOSAL_TYPEHASH, (block.timestamp / committeeSync.epoch()), keccak256(abi.encode(newCommittee))
-            )
-        );
-        bytes32 digest = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", structHash));
+        bytes32 proposal = committeeSync.hash(block.timestamp / committeeSync.epochLength(), newCommittee);
+        bytes32 digest = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", proposal));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, digest);
         return abi.encodePacked(r, s, v);
     }
@@ -67,6 +62,33 @@ contract CommitteeSyncTest is Test {
         assertNotEq(address(committeeSync), address(committeeSync2));
     }
 
+    function test_revert_invalidConfig() public {
+        vm.expectRevert(CommitteeSync.InvalidConfig.selector);
+        new CommitteeSync{salt: 0}(deployer, 0, 7000);
+        vm.expectRevert(CommitteeSync.InvalidConfig.selector);
+        new CommitteeSync{salt: 0}(deployer, 1 hours, 0);
+        vm.expectRevert(CommitteeSync.InvalidConfig.selector);
+        new CommitteeSync{salt: 0}(deployer, 1 hours, 100_01);
+    }
+
+    function test_helpers() public view {
+        assertTrue(committeeSync.isMember(deployer));
+        assertFalse(committeeSync.isMember(vm.addr(0xB0B)));
+        assertEq(committeeSync.indexOf(deployer), 0);
+        assertEq(committeeSync.indexOf(vm.addr(0xB0B)), committeeSync.NOT_FOUND());
+
+        address[] memory newCommittee = arr(1, 2, 3);
+        bytes32 expected = keccak256(
+            abi.encode(
+                committeeSync.EIP191_DOMAIN_SEPARATOR(),
+                committeeSync.PROPOSAL_TYPEHASH(),
+                (block.timestamp / committeeSync.epochLength()),
+                keccak256(abi.encode(newCommittee))
+            )
+        );
+        assertEq(committeeSync.hash(block.timestamp / committeeSync.epochLength(), newCommittee), expected);
+    }
+
     function test_initialDeployerOnlyCommittee() public {
         assertEq(committeeSync.getCommittee().length, 1);
         assertEq(committeeSync.getCommittee()[0], deployer);
@@ -82,6 +104,7 @@ contract CommitteeSyncTest is Test {
 
         address[] memory newCommittee = arr(1, 2, 10);
         bytes[] memory badSigs = sigsFor(deployerKey, newCommittee);
+        vm.expectRevert(abi.encodeWithSelector(CommitteeSync.InsufficientVotes.selector, 0));
         committeeSync.vote(newCommittee, badSigs);
         assertEq(committeeSync.getCommittee(), initialCommittee);
     }
@@ -98,24 +121,29 @@ contract CommitteeSyncTest is Test {
         committeeSync.vote(new address[](256), emptySigs);
     }
 
-    function test_revert_unsortedCommittee() public {
-        bytes[] memory emptySigs = new bytes[](0);
+    function test_unsortedCommitteeAllowed() public {
         address[] memory bad = new address[](3);
         bad[0] = vm.addr(2);
         bad[1] = vm.addr(1);
         bad[2] = vm.addr(3);
-        vm.expectRevert(CommitteeSync.InvalidCommittee.selector);
-        committeeSync.vote(bad, emptySigs);
+        committeeSync.vote(bad, sigsFor(deployerKey, bad));
+        assertEq(committeeSync.getCommittee(), bad);
     }
 
-    function test_revert_zeroMemberCommittee() public {
+    function test_emptySigsRevert() public {
+        address[] memory newCommittee = arr(1, 2, 3);
         bytes[] memory emptySigs = new bytes[](0);
+        vm.expectRevert(abi.encodeWithSelector(CommitteeSync.InsufficientVotes.selector, 0));
+        committeeSync.vote(newCommittee, emptySigs);
+    }
+
+    function test_zeroMemberCommitteeAllowed() public {
         address[] memory bad = new address[](3);
         bad[0] = address(0);
         bad[1] = vm.addr(1);
         bad[2] = vm.addr(2);
-        vm.expectRevert(CommitteeSync.InvalidCommittee.selector);
-        committeeSync.vote(bad, emptySigs);
+        committeeSync.vote(bad, sigsFor(deployerKey, bad));
+        assertEq(committeeSync.getCommittee(), bad);
     }
 
     function test_vote_majority() public {
@@ -123,20 +151,36 @@ contract CommitteeSyncTest is Test {
         committeeSync.vote(initialCommittee, sigsFor(deployerKey, initialCommittee));
 
         address[] memory newCommittee = arr(1, 2, 10);
-        committeeSync.vote(newCommittee, sigsFor(1, newCommittee));
-        committeeSync.vote(newCommittee, sigsFor(2, newCommittee));
+        bytes[] memory sigs = new bytes[](2);
+        sigs[0] = signProposal(1, newCommittee);
+        sigs[1] = signProposal(2, newCommittee);
+        committeeSync.vote(newCommittee, sigs);
         assertEq(committeeSync.getCommittee(), newCommittee);
+    }
+
+    function test_duplicateSignaturesDontIncreaseCount() public {
+        address[] memory initialCommittee = arr(1, 2, 3);
+        committeeSync.vote(initialCommittee, sigsFor(deployerKey, initialCommittee));
+
+        address[] memory newCommittee = arr(1, 2, 10);
+        bytes[] memory sigs = new bytes[](2);
+        sigs[0] = signProposal(1, newCommittee);
+        sigs[1] = sigs[0];
+        vm.expectRevert(abi.encodeWithSelector(CommitteeSync.InsufficientVotes.selector, 1));
+        committeeSync.vote(newCommittee, sigs);
     }
 
     function test_vote_perEpoch() public {
         address[] memory initialCommittee = arr(1, 2, 3);
         committeeSync.vote(initialCommittee, sigsFor(deployerKey, initialCommittee));
 
-        vm.warp(block.timestamp + 1 hours + 59 minutes);
         address[] memory newCommittee = arr(1, 2, 10);
-        committeeSync.vote(newCommittee, sigsFor(1, newCommittee));
+        bytes[] memory sigs = new bytes[](2);
+        sigs[0] = signProposal(1, newCommittee);
+        sigs[1] = signProposal(2, newCommittee);
         vm.warp(block.timestamp + 2 hours + 1 minutes);
-        committeeSync.vote(newCommittee, sigsFor(2, newCommittee));
+        vm.expectRevert(abi.encodeWithSelector(CommitteeSync.InsufficientVotes.selector, 0));
+        committeeSync.vote(newCommittee, sigs);
 
         assertEq(committeeSync.getCommittee(), initialCommittee);
     }
