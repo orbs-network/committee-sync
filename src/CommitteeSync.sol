@@ -10,12 +10,12 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 /// @dev
 /// Architecture:
 /// - Off-chain signatures from current governance members.
-/// - Signatures bind to epoch = block.timestamp / epochLength.
+/// - Signatures bind to an incrementing proposal nonce.
 /// - Custom hashing: EIP-712-style struct hashing without chainId or verifying contract.
-/// - Signatures can be replayed across EVM chains by design.
+/// - Signatures can be replayed across EVM chains by design, assuming nonce parity.
 /// Hashing:
 /// 1) committeeHash = keccak256(abi.encode(newCommittee))
-/// 2) structHash = keccak256(abi.encode(EIP191_DOMAIN_SEPARATOR, PROPOSAL_TYPEHASH, epoch, committeeHash))
+/// 2) structHash = keccak256(abi.encode(EIP191_DOMAIN_SEPARATOR, PROPOSAL_TYPEHASH, nonce, committeeHash))
 /// 3) signature = EIP-191 prefixed signature over structHash digest.
 contract CommitteeSync {
     using MessageHashUtils for bytes32;
@@ -24,54 +24,60 @@ contract CommitteeSync {
     string public constant VERSION = "1";
 
     bytes32 public constant EIP191_DOMAIN_TYPEHASH = keccak256("EIP191Domain(string name,string version)");
-    bytes32 public constant PROPOSAL_TYPEHASH = keccak256("Proposal(uint256 epoch,bytes32 committeeHash)");
+    bytes32 public constant PROPOSAL_TYPEHASH = keccak256("Proposal(uint256 nonce,bytes32 committeeHash)");
     bytes32 public constant EIP191_DOMAIN_SEPARATOR =
         keccak256(abi.encode(EIP191_DOMAIN_TYPEHASH, keccak256(bytes(NAME)), keccak256(bytes(VERSION))));
 
+    uint256 public constant MIN_SIZE = 5;
     uint256 public constant MAX_SIZE = type(uint8).max;
-    uint256 public constant MIN_SIZE = 3;
+    uint256 public constant THRESHOLD = 60_00;
     uint256 public constant BPS = 100_00;
     uint256 public constant NOT_FOUND = type(uint256).max;
 
-    uint256 public immutable epochLength;
-    uint256 public immutable threshold;
-
+    uint256 public nonce;
     address[] public committee;
 
-    event NewCommittee(uint256 indexed epoch, address[] committee, uint256 votes, bytes32 proposal);
+    event NewCommittee(uint256 indexed nonce, address[] committee, uint256 votes, bytes32 proposal);
 
     /// @dev Proposed committee size is outside allowed bounds.
     error InvalidCommittee();
-    /// @dev Constructor parameters are invalid.
-    error InvalidConfig();
     /// @dev Collected signatures are fewer than threshold.
     error InsufficientVotes(uint256 votes);
 
+    struct Vote {
+        address[] committee;
+        bytes[] sigs;
+    }
+
     /// @param initialMember The initial committee member.
-    /// @param _epochLength Epoch length in seconds.
-    /// @param _threshold Required threshold in BPS (1..BPS).
-    constructor(address initialMember, uint256 _epochLength, uint256 _threshold) {
-        if (_epochLength == 0 || _threshold == 0 || _threshold > BPS) revert InvalidConfig();
+    constructor(address initialMember) {
         committee.push(initialMember);
-        epochLength = _epochLength;
-        threshold = _threshold;
+    }
+
+    /// @notice Applies multiple sequential committee updates in one call.
+    /// @param batch Proposed committee members and signatures for each step.
+    function votes(Vote[] memory batch) external {
+        for (uint256 i; i < batch.length; i++) {
+            vote(batch[i].committee, batch[i].sigs);
+        }
     }
 
     /// @notice Updates committee if enough current members signed the proposal.
     /// @param newCommittee Proposed committee members.
     /// @param sigs ECDSA signatures over the proposal.
-    function vote(address[] memory newCommittee, bytes[] memory sigs) external {
+    function vote(address[] memory newCommittee, bytes[] memory sigs) public {
         if (newCommittee.length < MIN_SIZE || newCommittee.length > MAX_SIZE) revert InvalidCommittee();
 
-        uint256 epoch = block.timestamp / epochLength;
-        bytes32 proposal = hash(epoch, newCommittee).toEthSignedMessageHash();
+        uint256 proposalNonce = nonce + 1;
+        bytes32 proposal = hash(proposalNonce, newCommittee).toEthSignedMessageHash();
         uint256 count = _countUniqueMembers(proposal, sigs);
 
-        uint256 required = Math.max(1, committee.length * threshold / BPS);
+        uint256 required = Math.max(1, committee.length * THRESHOLD / BPS);
         if (count < required) revert InsufficientVotes(count);
 
         committee = newCommittee;
-        emit NewCommittee(epoch, committee, count, proposal);
+        nonce = proposalNonce;
+        emit NewCommittee(proposalNonce, committee, count, proposal);
     }
 
     /// @notice Returns the current committee array.
@@ -92,12 +98,11 @@ contract CommitteeSync {
         return NOT_FOUND;
     }
 
-    /// @notice Returns the proposal hash for the given epoch and committee.
-    function hash(uint256 epoch, address[] memory newCommittee) public pure returns (bytes32) {
-        return
-            keccak256(
-                abi.encode(EIP191_DOMAIN_SEPARATOR, PROPOSAL_TYPEHASH, epoch, keccak256(abi.encode(newCommittee)))
-            );
+    /// @notice Returns the proposal hash for the given nonce and committee.
+    function hash(uint256 proposalNonce, address[] memory newCommittee) public pure returns (bytes32) {
+        return keccak256(
+            abi.encode(EIP191_DOMAIN_SEPARATOR, PROPOSAL_TYPEHASH, proposalNonce, keccak256(abi.encode(newCommittee)))
+        );
     }
 
     /// @dev Counts unique current members who signed the proposal.
