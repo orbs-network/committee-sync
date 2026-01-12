@@ -12,7 +12,8 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 /// - Off-chain signatures from current governance members.
 /// - Signatures bind to an incrementing proposal nonce.
 /// - Custom hashing: EIP-712-style struct hashing without chainId or verifying contract.
-/// - Signatures can be replayed across EVM chains by design, assuming nonce parity.
+/// - Signatures are replayable across chains and deployments by design to keep committees aligned,
+///   including environments where contract addresses differ (e.g., some zkEVMs), assuming nonce parity.
 /// Hashing:
 /// 1) committeeHash = keccak256(abi.encode(newCommittee))
 /// 2) structHash = keccak256(abi.encode(EIP191_DOMAIN_SEPARATOR, PROPOSAL_TYPEHASH, nonce, committeeHash))
@@ -72,7 +73,7 @@ contract CommitteeSync {
         bytes32 proposal = hash(proposalNonce, newCommittee).toEthSignedMessageHash();
         uint256 count = _countUniqueMembers(proposal, sigs);
 
-        uint256 required = Math.max(1, committee.length * THRESHOLD / BPS);
+        uint256 required = Math.max(1, Math.mulDiv(committee.length, THRESHOLD, BPS, Math.Rounding.Ceil));
         if (count < required) revert InsufficientVotes(count);
 
         committee = newCommittee;
