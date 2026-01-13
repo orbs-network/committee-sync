@@ -12,11 +12,12 @@ Synchronizes committee membership across EVM chains using off-chain signatures a
 
 ## 🌱 Bootstrap flow
 - The constructor seeds a **single** initial member (`OWNER`).
-- That seed member can bootstrap the first full committee by calling `vote` once.
+- That seed member can bootstrap the first full committee by calling `sync` once.
+- Committees must be unique and non-zero address members.
 
 ## 🔄 Desync recovery
-If a chain falls behind, gather the signed proposals for the missing nonces and call `votes()` on that chain.
-`votes()` applies proposals sequentially, advancing the nonce to match other chains.
+If a chain falls behind, gather the signed proposals for the missing nonces and call `syncs()` on that chain.
+`syncs()` applies proposals sequentially, advancing the nonce to match other chains.
 An empty batch is a no-op.
 
 ## 🚀 Deployment
@@ -29,5 +30,5 @@ export OWNER=0xYourInitialMember
 Then run the script in `script/Deploy.s.sol`.
 
 ## 📦 Interfaces
-- `vote(address[] newCommittee, bytes[] sigs)`
-- `votes(Vote[] batch)` where `Vote = {committee, sigs}`
+- `sync(address[] newCommittee, bytes[] sigs)`
+- `syncs(Vote[] batch)` where `Vote = {committee, sigs}`

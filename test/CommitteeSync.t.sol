@@ -72,7 +72,7 @@ contract CommitteeSyncTest is Test {
         address[] memory newCommittee = arr(5, 1);
         bytes[] memory sigs = new bytes[](1);
         sigs[0] = signProposal(deployerKey, newCommittee, nextNonce());
-        committeeSync.vote(newCommittee, sigs);
+        committeeSync.sync(newCommittee, sigs);
         assertEq(committeeSync.getCommittee().length, 5);
         assertEq(committeeSync.getCommittee(), newCommittee);
     }
@@ -81,31 +81,76 @@ contract CommitteeSyncTest is Test {
         address[] memory initialCommittee = arr(5, 1);
         bytes[] memory initialSigs = new bytes[](1);
         initialSigs[0] = signProposal(deployerKey, initialCommittee, nextNonce());
-        committeeSync.vote(initialCommittee, initialSigs);
+        committeeSync.sync(initialCommittee, initialSigs);
 
         address[] memory newCommittee = arr(5, 1);
         newCommittee[2] = vm.addr(10);
         bytes[] memory badSigs = new bytes[](1);
         badSigs[0] = signProposal(deployerKey, newCommittee, nextNonce());
         vm.expectRevert(abi.encodeWithSelector(CommitteeSync.InsufficientVotes.selector, 0));
-        committeeSync.vote(newCommittee, badSigs);
+        committeeSync.sync(newCommittee, badSigs);
         assertEq(committeeSync.getCommittee(), initialCommittee);
     }
 
-    function test_revert_invalidCommittee() public {
+    function test_invalidSignatureSkipped() public {
+        address[] memory initialCommittee = arr(5, 1);
+        bytes[] memory initialSigs = new bytes[](1);
+        initialSigs[0] = signProposal(deployerKey, initialCommittee, nextNonce());
+        committeeSync.sync(initialCommittee, initialSigs);
+
+        address[] memory newCommittee = arr(5, 1);
+        newCommittee[2] = vm.addr(10);
+        uint256 proposalNonce = nextNonce();
+        bytes[] memory sigs = new bytes[](3);
+        sigs[0] = signProposal(1, newCommittee, proposalNonce);
+        sigs[1] = signProposal(2, newCommittee, proposalNonce);
+        sigs[2] = hex"01";
+
+        vm.expectRevert(abi.encodeWithSelector(CommitteeSync.InsufficientVotes.selector, 2));
+        committeeSync.sync(newCommittee, sigs);
+    }
+
+    function test_invalidSignatureSkippedButPasses() public {
+        address[] memory initialCommittee = arr(5, 1);
+        bytes[] memory initialSigs = new bytes[](1);
+        initialSigs[0] = signProposal(deployerKey, initialCommittee, nextNonce());
+        committeeSync.sync(initialCommittee, initialSigs);
+
+        address[] memory newCommittee = arr(5, 1);
+        newCommittee[4] = vm.addr(10);
+        uint256 proposalNonce = nextNonce();
+        bytes[] memory sigs = new bytes[](4);
+        sigs[0] = hex"01";
+        sigs[1] = signProposal(1, newCommittee, proposalNonce);
+        sigs[2] = signProposal(2, newCommittee, proposalNonce);
+        sigs[3] = signProposal(3, newCommittee, proposalNonce);
+
+        committeeSync.sync(newCommittee, sigs);
+        assertEq(committeeSync.getCommittee(), newCommittee);
+    }
+
+    function test_revert_invalidCommitteeSize() public {
         bytes[] memory emptySigs = new bytes[](0);
         vm.expectRevert(CommitteeSync.InvalidCommittee.selector);
-        committeeSync.vote(arr(0, 1), emptySigs);
+        committeeSync.sync(arr(0, 1), emptySigs);
         vm.expectRevert(CommitteeSync.InvalidCommittee.selector);
-        committeeSync.vote(arr(1, 1), emptySigs);
+        committeeSync.sync(arr(1, 1), emptySigs);
         vm.expectRevert(CommitteeSync.InvalidCommittee.selector);
-        committeeSync.vote(arr(2, 1), emptySigs);
+        committeeSync.sync(arr(2, 1), emptySigs);
         vm.expectRevert(CommitteeSync.InvalidCommittee.selector);
-        committeeSync.vote(arr(3, 1), emptySigs);
+        committeeSync.sync(arr(3, 1), emptySigs);
         vm.expectRevert(CommitteeSync.InvalidCommittee.selector);
-        committeeSync.vote(arr(4, 1), emptySigs);
+        committeeSync.sync(arr(4, 1), emptySigs);
         vm.expectRevert(CommitteeSync.InvalidCommittee.selector);
-        committeeSync.vote(arr(256, 1), emptySigs);
+        committeeSync.sync(arr(256, 1), emptySigs);
+    }
+
+    function test_acceptsMaxCommitteeSize() public {
+        address[] memory maxCommittee = arr(255, 1);
+        bytes[] memory sigs = new bytes[](1);
+        sigs[0] = signProposal(deployerKey, maxCommittee, nextNonce());
+        committeeSync.sync(maxCommittee, sigs);
+        assertEq(committeeSync.getCommittee().length, 255);
     }
 
     function test_unsortedCommitteeAllowed() public {
@@ -117,7 +162,7 @@ contract CommitteeSyncTest is Test {
         bad[4] = vm.addr(4);
         bytes[] memory sigs = new bytes[](1);
         sigs[0] = signProposal(deployerKey, bad, nextNonce());
-        committeeSync.vote(bad, sigs);
+        committeeSync.sync(bad, sigs);
         assertEq(committeeSync.getCommittee(), bad);
     }
 
@@ -125,23 +170,23 @@ contract CommitteeSyncTest is Test {
         address[] memory newCommittee = arr(5, 1);
         bytes[] memory emptySigs = new bytes[](0);
         vm.expectRevert(abi.encodeWithSelector(CommitteeSync.InsufficientVotes.selector, 0));
-        committeeSync.vote(newCommittee, emptySigs);
+        committeeSync.sync(newCommittee, emptySigs);
     }
 
-    function test_zeroMemberCommitteeAllowed() public {
+    function test_revert_zeroMemberCommittee() public {
         address[] memory bad = arr(5, 1);
         bad[0] = address(0);
         bytes[] memory sigs = new bytes[](1);
         sigs[0] = signProposal(deployerKey, bad, nextNonce());
-        committeeSync.vote(bad, sigs);
-        assertEq(committeeSync.getCommittee(), bad);
+        vm.expectRevert(CommitteeSync.InvalidCommittee.selector);
+        committeeSync.sync(bad, sigs);
     }
 
     function test_vote_majority() public {
         address[] memory initialCommittee = arr(5, 1);
         bytes[] memory initialSigs = new bytes[](1);
         initialSigs[0] = signProposal(deployerKey, initialCommittee, nextNonce());
-        committeeSync.vote(initialCommittee, initialSigs);
+        committeeSync.sync(initialCommittee, initialSigs);
 
         address[] memory newCommittee = arr(5, 1);
         newCommittee[2] = vm.addr(10);
@@ -150,7 +195,7 @@ contract CommitteeSyncTest is Test {
         sigs[0] = signProposal(1, newCommittee, proposalNonce);
         sigs[1] = signProposal(2, newCommittee, proposalNonce);
         sigs[2] = signProposal(3, newCommittee, proposalNonce);
-        committeeSync.vote(newCommittee, sigs);
+        committeeSync.sync(newCommittee, sigs);
         assertEq(committeeSync.getCommittee(), newCommittee);
     }
 
@@ -158,7 +203,7 @@ contract CommitteeSyncTest is Test {
         address[] memory initialCommittee = arr(5, 1);
         bytes[] memory initialSigs = new bytes[](1);
         initialSigs[0] = signProposal(deployerKey, initialCommittee, nextNonce());
-        committeeSync.vote(initialCommittee, initialSigs);
+        committeeSync.sync(initialCommittee, initialSigs);
 
         address[] memory newCommittee = arr(5, 1);
         newCommittee[4] = vm.addr(10);
@@ -167,14 +212,14 @@ contract CommitteeSyncTest is Test {
         sigs[0] = signProposal(1, newCommittee, proposalNonce);
         sigs[1] = sigs[0];
         vm.expectRevert(abi.encodeWithSelector(CommitteeSync.InsufficientVotes.selector, 1));
-        committeeSync.vote(newCommittee, sigs);
+        committeeSync.sync(newCommittee, sigs);
     }
 
     function test_replayOldNonceReverts() public {
         address[] memory initialCommittee = arr(5, 1);
         bytes[] memory initialSigs = new bytes[](1);
         initialSigs[0] = signProposal(deployerKey, initialCommittee, nextNonce());
-        committeeSync.vote(initialCommittee, initialSigs);
+        committeeSync.sync(initialCommittee, initialSigs);
 
         address[] memory newCommittee = arr(5, 1);
         newCommittee[2] = vm.addr(10);
@@ -183,15 +228,15 @@ contract CommitteeSyncTest is Test {
         sigs[0] = signProposal(1, newCommittee, proposalNonce);
         sigs[1] = signProposal(2, newCommittee, proposalNonce);
         sigs[2] = signProposal(3, newCommittee, proposalNonce);
-        committeeSync.vote(newCommittee, sigs);
+        committeeSync.sync(newCommittee, sigs);
 
         vm.expectRevert(abi.encodeWithSelector(CommitteeSync.InsufficientVotes.selector, 0));
-        committeeSync.vote(newCommittee, sigs);
+        committeeSync.sync(newCommittee, sigs);
 
         assertEq(committeeSync.getCommittee(), newCommittee);
     }
 
-    function test_votes_appliesSequentially() public {
+    function test_syncs_appliesSequentially() public {
         address[] memory committee1 = arr(5, 1);
         address[] memory committee2 = arr(5, 1);
         committee2[2] = vm.addr(10);
@@ -210,18 +255,45 @@ contract CommitteeSyncTest is Test {
         votes[0] = CommitteeSync.Vote({committee: committee1, sigs: sigs1});
         votes[1] = CommitteeSync.Vote({committee: committee2, sigs: sigs2});
 
-        committeeSync.votes(votes);
+        committeeSync.syncs(votes);
 
         assertEq(committeeSync.getCommittee(), committee2);
         assertEq(committeeSync.nonce(), secondNonce);
     }
 
-    function test_votes_emptyNoop() public {
+    function test_syncs_emptyNoop() public {
         address[] memory beforeCommittee = committeeSync.getCommittee();
         uint256 beforeNonce = committeeSync.nonce();
         CommitteeSync.Vote[] memory votes = new CommitteeSync.Vote[](0);
 
-        committeeSync.votes(votes);
+        committeeSync.syncs(votes);
+
+        assertEq(committeeSync.nonce(), beforeNonce);
+        assertEq(committeeSync.getCommittee(), beforeCommittee);
+    }
+
+    function test_syncs_revertsAllOrNothing() public {
+        address[] memory committee1 = arr(5, 1);
+        uint256 firstNonce = nextNonce();
+        bytes[] memory sigs1 = new bytes[](1);
+        sigs1[0] = signProposal(deployerKey, committee1, firstNonce);
+
+        address[] memory committee2 = arr(5, 1);
+        committee2[2] = vm.addr(10);
+        uint256 secondNonce = firstNonce + 1;
+        bytes[] memory sigs2 = new bytes[](2);
+        sigs2[0] = signProposal(1, committee2, secondNonce);
+        sigs2[1] = signProposal(2, committee2, secondNonce);
+
+        CommitteeSync.Vote[] memory votes = new CommitteeSync.Vote[](2);
+        votes[0] = CommitteeSync.Vote({committee: committee1, sigs: sigs1});
+        votes[1] = CommitteeSync.Vote({committee: committee2, sigs: sigs2});
+
+        address[] memory beforeCommittee = committeeSync.getCommittee();
+        uint256 beforeNonce = committeeSync.nonce();
+
+        vm.expectRevert(abi.encodeWithSelector(CommitteeSync.InsufficientVotes.selector, 2));
+        committeeSync.syncs(votes);
 
         assertEq(committeeSync.nonce(), beforeNonce);
         assertEq(committeeSync.getCommittee(), beforeCommittee);
@@ -231,7 +303,7 @@ contract CommitteeSyncTest is Test {
         address[] memory newCommittee = arr(5, 1);
         bytes[] memory sigs = new bytes[](1);
         sigs[0] = signProposal(deployerKey, newCommittee, nextNonce());
-        committeeSync.vote(newCommittee, sigs);
+        committeeSync.sync(newCommittee, sigs);
 
         assertTrue(committeeSync.isMember(vm.addr(1)));
         assertEq(committeeSync.indexOf(vm.addr(1)), 0);
@@ -240,11 +312,34 @@ contract CommitteeSyncTest is Test {
         assertFalse(committeeSync.isMember(deployer));
     }
 
+    function test_updated_setAndNotChangedOnRevert() public {
+        address[] memory initialCommittee = arr(5, 1);
+        bytes[] memory initialSigs = new bytes[](1);
+        initialSigs[0] = signProposal(deployerKey, initialCommittee, nextNonce());
+
+        vm.warp(1000);
+        committeeSync.sync(initialCommittee, initialSigs);
+        assertEq(committeeSync.updated(), 1000);
+
+        address[] memory newCommittee = arr(5, 1);
+        newCommittee[2] = vm.addr(10);
+        uint256 proposalNonce = nextNonce();
+        bytes[] memory badSigs = new bytes[](2);
+        badSigs[0] = signProposal(1, newCommittee, proposalNonce);
+        badSigs[1] = signProposal(2, newCommittee, proposalNonce);
+
+        vm.warp(2000);
+        vm.expectRevert(abi.encodeWithSelector(CommitteeSync.InsufficientVotes.selector, 2));
+        committeeSync.sync(newCommittee, badSigs);
+
+        assertEq(committeeSync.updated(), 1000);
+    }
+
     function test_thresholdRoundsUp() public {
         address[] memory initialCommittee = arr(6, 1);
         bytes[] memory initialSigs = new bytes[](1);
         initialSigs[0] = signProposal(deployerKey, initialCommittee, nextNonce());
-        committeeSync.vote(initialCommittee, initialSigs);
+        committeeSync.sync(initialCommittee, initialSigs);
 
         address[] memory newCommittee = arr(6, 1);
         newCommittee[5] = vm.addr(7);
@@ -255,22 +350,22 @@ contract CommitteeSyncTest is Test {
         threeSigs[1] = signProposal(2, newCommittee, proposalNonce);
         threeSigs[2] = signProposal(3, newCommittee, proposalNonce);
         vm.expectRevert(abi.encodeWithSelector(CommitteeSync.InsufficientVotes.selector, 3));
-        committeeSync.vote(newCommittee, threeSigs);
+        committeeSync.sync(newCommittee, threeSigs);
 
         bytes[] memory fourSigs = new bytes[](4);
         fourSigs[0] = signProposal(1, newCommittee, proposalNonce);
         fourSigs[1] = signProposal(2, newCommittee, proposalNonce);
         fourSigs[2] = signProposal(3, newCommittee, proposalNonce);
         fourSigs[3] = signProposal(4, newCommittee, proposalNonce);
-        committeeSync.vote(newCommittee, fourSigs);
+        committeeSync.sync(newCommittee, fourSigs);
         assertEq(committeeSync.getCommittee(), newCommittee);
     }
 
-    function test_duplicateCommitteeCanBrick() public {
+    function test_revert_duplicateCommittee() public {
         address[] memory initialCommittee = arr(5, 1);
         bytes[] memory initialSigs = new bytes[](1);
         initialSigs[0] = signProposal(deployerKey, initialCommittee, nextNonce());
-        committeeSync.vote(initialCommittee, initialSigs);
+        committeeSync.sync(initialCommittee, initialSigs);
 
         address[] memory duplicateCommittee = arr(5, 1);
         duplicateCommittee[0] = vm.addr(1);
@@ -284,16 +379,8 @@ contract CommitteeSyncTest is Test {
         sigs[0] = signProposal(1, duplicateCommittee, proposalNonce);
         sigs[1] = signProposal(2, duplicateCommittee, proposalNonce);
         sigs[2] = signProposal(3, duplicateCommittee, proposalNonce);
-        committeeSync.vote(duplicateCommittee, sigs);
-
-        address[] memory newCommittee = arr(5, 1);
-        newCommittee[4] = vm.addr(6);
-        uint256 nextProposalNonce = nextNonce();
-        bytes[] memory twoSigs = new bytes[](2);
-        twoSigs[0] = signProposal(1, newCommittee, nextProposalNonce);
-        twoSigs[1] = signProposal(2, newCommittee, nextProposalNonce);
-        vm.expectRevert(abi.encodeWithSelector(CommitteeSync.InsufficientVotes.selector, 2));
-        committeeSync.vote(newCommittee, twoSigs);
+        vm.expectRevert(CommitteeSync.InvalidCommittee.selector);
+        committeeSync.sync(duplicateCommittee, sigs);
     }
 
     function test_hashOrderMatters() public view {
@@ -313,7 +400,7 @@ contract CommitteeSyncTest is Test {
         address[] memory committee20 = arr(20, 1);
         bytes[] memory initialSigs = new bytes[](1);
         initialSigs[0] = signProposal(deployerKey, committee20, nextNonce());
-        committeeSync.vote(committee20, initialSigs);
+        committeeSync.sync(committee20, initialSigs);
 
         address[] memory newCommittee = arr(20, 1);
         newCommittee[19] = vm.addr(21);
@@ -325,6 +412,6 @@ contract CommitteeSyncTest is Test {
         }
 
         vm.resumeGasMetering();
-        committeeSync.vote(newCommittee, sigs);
+        committeeSync.sync(newCommittee, sigs);
     }
 }

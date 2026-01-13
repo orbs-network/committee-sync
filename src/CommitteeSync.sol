@@ -35,8 +35,9 @@ contract CommitteeSync {
     uint256 public constant BPS = 100_00;
     uint256 public constant NOT_FOUND = type(uint256).max;
 
-    uint256 public nonce;
     address[] public committee;
+    uint256 public nonce;
+    uint256 public updated;
 
     event NewCommittee(uint256 indexed nonce, address[] committee, uint256 votes, bytes32 proposal);
 
@@ -57,17 +58,17 @@ contract CommitteeSync {
 
     /// @notice Applies multiple sequential committee updates in one call.
     /// @param batch Proposed committee members and signatures for each step.
-    function votes(Vote[] memory batch) external {
+    function syncs(Vote[] memory batch) external {
         for (uint256 i; i < batch.length; i++) {
-            vote(batch[i].committee, batch[i].sigs);
+            sync(batch[i].committee, batch[i].sigs);
         }
     }
 
     /// @notice Updates committee if enough current members signed the proposal.
     /// @param newCommittee Proposed committee members.
     /// @param sigs ECDSA signatures over the proposal.
-    function vote(address[] memory newCommittee, bytes[] memory sigs) public {
-        if (newCommittee.length < MIN_SIZE || newCommittee.length > MAX_SIZE) revert InvalidCommittee();
+    function sync(address[] memory newCommittee, bytes[] memory sigs) public {
+        _validateCommittee(newCommittee);
 
         uint256 proposalNonce = nonce + 1;
         bytes32 proposal = hash(proposalNonce, newCommittee).toEthSignedMessageHash();
@@ -78,6 +79,7 @@ contract CommitteeSync {
 
         committee = newCommittee;
         nonce = proposalNonce;
+        updated = block.timestamp;
         emit NewCommittee(proposalNonce, committee, count, proposal);
     }
 
@@ -110,7 +112,8 @@ contract CommitteeSync {
     function _countUniqueMembers(bytes32 proposal, bytes[] memory sigs) internal view returns (uint256 count) {
         uint256 seen;
         for (uint256 i; i < sigs.length; i++) {
-            address signer = ECDSA.recover(proposal, sigs[i]);
+            (address signer, ECDSA.RecoverError err,) = ECDSA.tryRecover(proposal, sigs[i]);
+            if (err != ECDSA.RecoverError.NoError) continue;
 
             uint256 index = indexOf(signer);
             if (index == NOT_FOUND) continue;
@@ -120,6 +123,18 @@ contract CommitteeSync {
             seen |= mask;
 
             count++;
+        }
+    }
+
+    function _validateCommittee(address[] memory newCommittee) internal pure {
+        uint256 length = newCommittee.length;
+        if (length < MIN_SIZE || length > MAX_SIZE) revert InvalidCommittee();
+        for (uint256 i; i < length; i++) {
+            address member = newCommittee[i];
+            if (member == address(0)) revert InvalidCommittee();
+            for (uint256 j; j < i; j++) {
+                if (newCommittee[j] == member) revert InvalidCommittee();
+            }
         }
     }
 }
