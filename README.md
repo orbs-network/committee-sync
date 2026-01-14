@@ -15,6 +15,7 @@ Synchronizes committee membership and per-address config across EVM chains using
 ## 🔄 Ops
 - Desync recovery: collect missing digests and call `syncs()` to replay sequentially.
 - Empty batch is a no-op.
+- Config mapping only updates the provided accounts; old entries remain unless overwritten/cleared (clear by including the account in a `sync` with `value = 0x`).
 
 ## 📦 Interfaces
 - `sync(address[] newCommittee, Config[] config, bytes[] sigs)`

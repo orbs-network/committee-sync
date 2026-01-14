@@ -16,6 +16,7 @@ import {CommitteeSyncValidation} from "./CommitteeSyncValidation.sol";
 /// - EIP-712 typed data; domain includes name/version only (no chainId or verifyingContract).
 /// - Signatures are replayable across chains and deployments by design to keep committees aligned
 /// - Upgrade boundary is the EIP-712 version string; change it to invalidate prior digests
+/// - Config entries persist unless explicitly overwritten/cleared; clear by syncing value = 0x
 contract CommitteeSync {
     uint256 public constant THRESHOLD = 60_00;
     uint256 public constant BPS = 100_00;
