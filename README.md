@@ -1,34 +1,29 @@
 # CommitteeSync 🧭
 
-Synchronizes committee membership across EVM chains using off-chain signatures and a shared nonce.
+Synchronizes committee membership and per-address config across EVM chains using off-chain EIP-712 signatures and a shared nonce.
 
-## 🔁 Cross-chain replay (by design)
-- The domain omits `chainId` and `verifyingContract`, so proposals are replayable across chains **and deployments**.
-- This is intentional to keep committees aligned even when contract addresses differ (e.g., some zkEVMs).
+## 🔐 Signatures
+- EIP-712 typed data; domain uses **name + version only** (no `chainId` or `verifyingContract`).
+- Digests are replayable across chains/deployments by design.
+- Version changes intentionally invalidate prior digests.
 
-## ✅ Governance rules
-- `MIN_SIZE = 5`, `MAX_SIZE = 255`.
+## ✅ Rules
+- `MIN_SIZE = 3`, `MAX_SIZE = 255`.
 - `THRESHOLD = 6000` BPS (60%) **rounded up**.
+- Committee entries must be unique and non-zero.
 
-## 🌱 Bootstrap flow
-- The constructor seeds a **single** initial member (`OWNER`).
-- That seed member can bootstrap the first full committee by calling `sync` once.
-- Committees must be unique and non-zero address members.
+## 🔄 Ops
+- Desync recovery: collect missing digests and call `syncs()` to replay sequentially.
+- Empty batch is a no-op.
 
-## 🔄 Desync recovery
-If a chain falls behind, gather the signed proposals for the missing nonces and call `syncs()` on that chain.
-`syncs()` applies proposals sequentially, advancing the nonce to match other chains.
-An empty batch is a no-op.
+## 📦 Interfaces
+- `sync(address[] newCommittee, Config[] config, bytes[] sigs)`
+- `syncs(Sync[] batch)` where `Sync = {committee, config, sigs}`
+- `Config = {account, version, value}` stored in a single per-address mapping.
+- Libraries: `CommitteeSyncHash`, `CommitteeSyncConfig`, `CommitteeSyncValidation`.
 
-## 🚀 Deployment
-Requires a single environment variable:
-
+## 🚀 Deploy
 ```bash
 export OWNER=0xYourInitialMember
 ```
-
-Then run the script in `script/Deploy.s.sol`.
-
-## 📦 Interfaces
-- `sync(address[] newCommittee, bytes[] sigs)`
-- `syncs(Vote[] batch)` where `Vote = {committee, sigs}`
+Run `script/Deploy.s.sol`.

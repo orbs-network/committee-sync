@@ -2,52 +2,37 @@
 pragma solidity 0.8.*;
 
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
+import {CommitteeSyncConfig} from "./CommitteeSyncConfig.sol";
+import {CommitteeSyncHash} from "./CommitteeSyncHash.sol";
+import {CommitteeSyncValidation} from "./CommitteeSyncValidation.sol";
+
 /// @title CommitteeSync
-/// @notice Synchronizes committee membership across EVM chains.
+/// @notice Synchronizes committee membership and per-address config across EVM chains.
 /// @dev
-/// Architecture:
 /// - Off-chain signatures from current governance members.
-/// - Signatures bind to an incrementing proposal nonce.
-/// - Custom hashing: EIP-712-style struct hashing without chainId or verifying contract.
-/// - Signatures are replayable across chains and deployments by design to keep committees aligned,
-///   including environments where contract addresses differ (e.g., some zkEVMs), assuming nonce parity.
-/// Hashing:
-/// 1) committeeHash = keccak256(abi.encode(newCommittee))
-/// 2) structHash = keccak256(abi.encode(EIP191_DOMAIN_SEPARATOR, PROPOSAL_TYPEHASH, nonce, committeeHash))
-/// 3) signature = EIP-191 prefixed signature over structHash digest.
+/// - Signatures bind to an incrementing nonce.
+/// - EIP-712 typed data; domain includes name/version only (no chainId or verifyingContract).
+/// - Signatures are replayable across chains and deployments by design to keep committees aligned
+/// - Upgrade boundary is the EIP-712 version string; change it to invalidate prior digests
 contract CommitteeSync {
-    using MessageHashUtils for bytes32;
-
-    string public constant NAME = "OrbsCommitteeSync";
-    string public constant VERSION = "1";
-
-    bytes32 public constant EIP191_DOMAIN_TYPEHASH = keccak256("EIP191Domain(string name,string version)");
-    bytes32 public constant PROPOSAL_TYPEHASH = keccak256("Proposal(uint256 nonce,bytes32 committeeHash)");
-    bytes32 public constant EIP191_DOMAIN_SEPARATOR =
-        keccak256(abi.encode(EIP191_DOMAIN_TYPEHASH, keccak256(bytes(NAME)), keccak256(bytes(VERSION))));
-
-    uint256 public constant MIN_SIZE = 5;
-    uint256 public constant MAX_SIZE = type(uint8).max;
     uint256 public constant THRESHOLD = 60_00;
     uint256 public constant BPS = 100_00;
     uint256 public constant NOT_FOUND = type(uint256).max;
 
     address[] public committee;
+    mapping(address => CommitteeSyncConfig.StoredConfig) public config;
     uint256 public nonce;
     uint256 public updated;
 
-    event NewCommittee(uint256 indexed nonce, address[] committee, uint256 votes, bytes32 proposal);
+    event NewCommittee(uint256 indexed nonce, address[] committee, uint256 count, bytes32 digest);
 
-    /// @dev Proposed committee size is outside allowed bounds.
-    error InvalidCommittee();
-    /// @dev Collected signatures are fewer than threshold.
-    error InsufficientVotes(uint256 votes);
+    error InsufficientCount(uint256 count);
 
-    struct Vote {
+    struct Sync {
         address[] committee;
+        CommitteeSyncConfig.Config[] config;
         bytes[] sigs;
     }
 
@@ -57,30 +42,34 @@ contract CommitteeSync {
     }
 
     /// @notice Applies multiple sequential committee updates in one call.
-    /// @param batch Proposed committee members and signatures for each step.
-    function syncs(Vote[] memory batch) external {
+    /// @param batch Target committee members and signatures for each step.
+    function syncs(Sync[] memory batch) external {
         for (uint256 i; i < batch.length; i++) {
-            sync(batch[i].committee, batch[i].sigs);
+            sync(batch[i].committee, batch[i].config, batch[i].sigs);
         }
     }
 
-    /// @notice Updates committee if enough current members signed the proposal.
-    /// @param newCommittee Proposed committee members.
-    /// @param sigs ECDSA signatures over the proposal.
-    function sync(address[] memory newCommittee, bytes[] memory sigs) public {
-        _validateCommittee(newCommittee);
+    /// @notice Updates committee if enough current members signed the digest.
+    /// @param newCommittee Target committee members.
+    /// @param newConfig Per-address config to set alongside the committee update.
+    /// @param sigs ECDSA signatures over the digest.
+    function sync(address[] memory newCommittee, CommitteeSyncConfig.Config[] memory newConfig, bytes[] memory sigs)
+        public
+    {
+        CommitteeSyncValidation.validate(newCommittee);
 
-        uint256 proposalNonce = nonce + 1;
-        bytes32 proposal = hash(proposalNonce, newCommittee).toEthSignedMessageHash();
-        uint256 count = _countUniqueMembers(proposal, sigs);
+        uint256 digestNonce = nonce + 1;
+        bytes32 digest = hash(digestNonce, newCommittee, newConfig);
+        uint256 count = _countUniqueMembers(digest, sigs);
 
         uint256 required = Math.max(1, Math.mulDiv(committee.length, THRESHOLD, BPS, Math.Rounding.Ceil));
-        if (count < required) revert InsufficientVotes(count);
+        if (count < required) revert InsufficientCount(count);
 
         committee = newCommittee;
-        nonce = proposalNonce;
+        nonce = digestNonce;
         updated = block.timestamp;
-        emit NewCommittee(proposalNonce, committee, count, proposal);
+        CommitteeSyncConfig.save(config, newConfig);
+        emit NewCommittee(digestNonce, committee, count, digest);
     }
 
     /// @notice Returns the current committee array.
@@ -101,18 +90,20 @@ contract CommitteeSync {
         return NOT_FOUND;
     }
 
-    /// @notice Returns the proposal hash for the given nonce and committee.
-    function hash(uint256 proposalNonce, address[] memory newCommittee) public pure returns (bytes32) {
-        return keccak256(
-            abi.encode(EIP191_DOMAIN_SEPARATOR, PROPOSAL_TYPEHASH, proposalNonce, keccak256(abi.encode(newCommittee)))
-        );
+    /// @notice Returns the digest for the given nonce, committee, and config.
+    function hash(uint256 digestNonce, address[] memory newCommittee, CommitteeSyncConfig.Config[] memory newConfig)
+        public
+        pure
+        returns (bytes32)
+    {
+        return CommitteeSyncHash.hash(digestNonce, newCommittee, newConfig);
     }
 
-    /// @dev Counts unique current members who signed the proposal.
-    function _countUniqueMembers(bytes32 proposal, bytes[] memory sigs) internal view returns (uint256 count) {
+    /// @dev Counts unique current members who signed the digest.
+    function _countUniqueMembers(bytes32 digest, bytes[] memory sigs) internal view returns (uint256 count) {
         uint256 seen;
         for (uint256 i; i < sigs.length; i++) {
-            (address signer, ECDSA.RecoverError err,) = ECDSA.tryRecover(proposal, sigs[i]);
+            (address signer, ECDSA.RecoverError err,) = ECDSA.tryRecover(digest, sigs[i]);
             if (err != ECDSA.RecoverError.NoError) continue;
 
             uint256 index = indexOf(signer);
@@ -123,18 +114,6 @@ contract CommitteeSync {
             seen |= mask;
 
             count++;
-        }
-    }
-
-    function _validateCommittee(address[] memory newCommittee) internal pure {
-        uint256 length = newCommittee.length;
-        if (length < MIN_SIZE || length > MAX_SIZE) revert InvalidCommittee();
-        for (uint256 i; i < length; i++) {
-            address member = newCommittee[i];
-            if (member == address(0)) revert InvalidCommittee();
-            for (uint256 j; j < i; j++) {
-                if (newCommittee[j] == member) revert InvalidCommittee();
-            }
         }
     }
 }
