@@ -10,15 +10,17 @@ import {CommitteeSyncConfig} from "./CommitteeSyncConfig.sol";
 /// @dev EIP-712 struct hashing with a name/version-only domain separator.
 library CommitteeSyncHash {
     string internal constant NAME = "OrbsCommitteeSync";
-    string internal constant VERSION = "1";
+    string internal constant VERSION = "0";
 
-    bytes32 public constant EIP712_DOMAIN_TYPEHASH = keccak256("EIP712Domain(string name,string version)");
+    string internal constant EIP712_DOMAIN_TYPE = "EIP712Domain(string name,string version)";
+    string internal constant CONFIG_TYPE = "Config(address account,uint8 version,bytes value)";
+    string internal constant DIGEST_TYPE = "Digest(uint256 nonce,address[] committee,Config[] config)";
+
+    bytes32 public constant EIP712_DOMAIN_TYPEHASH = keccak256(bytes(EIP712_DOMAIN_TYPE));
     bytes32 public constant EIP712_DOMAIN_SEPARATOR =
         keccak256(abi.encode(EIP712_DOMAIN_TYPEHASH, keccak256(bytes(NAME)), keccak256(bytes(VERSION))));
-    bytes32 public constant CONFIG_TYPEHASH = keccak256("Config(address account,uint8 version,bytes value)");
-    bytes32 public constant DIGEST_TYPEHASH = keccak256(
-        "Digest(uint256 nonce,address[] committee,Config[] config)Config(address account,uint8 version,bytes value)"
-    );
+    bytes32 public constant CONFIG_TYPEHASH = keccak256(bytes(CONFIG_TYPE));
+    bytes32 public constant DIGEST_TYPEHASH = keccak256(abi.encodePacked(DIGEST_TYPE, CONFIG_TYPE));
 
     /// @notice Returns the EIP-712 digest for a committee/config update.
     function hash(uint256 digestNonce, address[] memory newCommittee, CommitteeSyncConfig.Config[] memory newConfig)
