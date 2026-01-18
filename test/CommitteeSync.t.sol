@@ -444,4 +444,39 @@ contract CommitteeSyncTest is Test {
         vm.resumeGasMetering();
         committeeSync.sync(newCommittee, emptyConfig(), sigs);
     }
+
+    function test_init_initialMemberOnlyBeforeCommittee() public {
+        vm.prank(deployer);
+        committeeSync.init(100);
+        assertEq(committeeSync.nonce(), 100);
+
+        address[] memory newCommittee = arr(5, 1);
+        bytes[] memory sigs = new bytes[](1);
+        sigs[0] = signDigest(deployerKey, newCommittee, emptyConfig(), 101);
+        committeeSync.sync(newCommittee, emptyConfig(), sigs);
+        assertEq(committeeSync.nonce(), 101);
+    }
+
+    function test_init_revertNotInitialMember() public {
+        vm.prank(vm.addr(0xB0B));
+        vm.expectRevert(CommitteeSync.InitFailed.selector);
+        committeeSync.init(1);
+    }
+
+    function test_init_revertCommitteeInitialized() public {
+        address[] memory newCommittee = arr(5, 1);
+        bytes[] memory sigs = new bytes[](1);
+        sigs[0] = signDigest(deployerKey, newCommittee, emptyConfig(), nextNonce());
+        committeeSync.sync(newCommittee, emptyConfig(), sigs);
+
+        vm.prank(deployer);
+        vm.expectRevert(CommitteeSync.InitFailed.selector);
+        committeeSync.init(10);
+    }
+
+    function test_init_revertInvalidNonce() public {
+        vm.prank(deployer);
+        vm.expectRevert(CommitteeSync.InitFailed.selector);
+        committeeSync.init(0);
+    }
 }

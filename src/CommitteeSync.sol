@@ -27,8 +27,10 @@ contract CommitteeSync {
     uint256 public nonce;
     uint256 public updated;
 
+    event Init(uint256 newNonce);
     event NewCommittee(uint256 indexed nonce, address[] committee, uint256 count, bytes32 digest);
 
+    error InitFailed();
     error InsufficientCount(uint256 count);
 
     struct Sync {
@@ -71,6 +73,15 @@ contract CommitteeSync {
         updated = block.timestamp;
         CommitteeSyncConfig.save(config, newConfig);
         emit NewCommittee(digestNonce, committee, count, digest);
+    }
+
+    /// @notice Sets the nonce while the committee still has only the initial member.
+    /// @param newNonce The nonce to set (must be greater than the current nonce).
+    function init(uint256 newNonce) external {
+        bool allowed = committee.length == 1 && msg.sender == committee[0] && newNonce > nonce;
+        if (!allowed) revert InitFailed();
+        nonce = newNonce;
+        emit Init(newNonce);
     }
 
     /// @notice Returns the current committee array.
