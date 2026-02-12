@@ -9,12 +9,16 @@ contract Deploy is Script {
     function run() public returns (address committeeSync) {
         address owner = vm.envAddress("OWNER");
         bytes32 salt = vm.envOr("SALT", bytes32(0x75e3be5a0037b707320866345cfb398f5401fc5736077dcdadfa9e4c6737210b));
-        console.logBytes32(hashInitCode(type(CommitteeSync).creationCode, abi.encode(owner)));
+        bytes32 initCodeHash = hashInitCode(type(CommitteeSync).creationCode, abi.encode(owner));
+        console.logBytes32(initCodeHash);
 
-        committeeSync = _getExistingDeployment();
-        if (committeeSync != address(0)) {
-            console.log("already deployed");
-            return committeeSync;
+        address previousDeployment = _getExistingDeployment();
+        console.log("prev deployment", previousDeployment);
+
+        address expectedDeployment = vm.computeCreate2Address(salt, initCodeHash);
+        if (expectedDeployment.code.length != 0) {
+            console.log("already deployed", expectedDeployment);
+            return expectedDeployment;
         }
 
         vm.broadcast();

@@ -11,12 +11,12 @@ import {CommitteeSyncValidation} from "./CommitteeSyncValidation.sol";
 /// @title CommitteeSync
 /// @notice Synchronizes committee membership and per-address config across EVM chains.
 /// @dev
-/// - Off-chain signatures from current governance members.
+/// - Off-chain signatures from current committee members.
 /// - Signatures bind to an incrementing nonce.
 /// - EIP-712 typed data; domain includes name/version only (no chainId or verifyingContract).
-/// - Signatures are replayable across chains and deployments by design to keep committees aligned
-/// - Upgrade boundary is the EIP-712 version string; change it to invalidate prior digests
-/// - Config entries persist unless explicitly overwritten/cleared; clear by syncing value = 0x
+/// - Signatures are replayable across chains and deployments by design to keep committees aligned.
+/// - Version is the upgrade boundary; change it to invalidate prior digests.
+/// - Config entries persist unless explicitly overwritten/cleared (`value = 0x`).
 contract CommitteeSync {
     uint256 public constant THRESHOLD = 60_00;
     uint256 public constant BPS = 100_00;
@@ -27,7 +27,15 @@ contract CommitteeSync {
     uint256 public nonce;
     uint256 public updated;
 
+    /// @notice Emitted when `init` updates nonce before the first committee sync.
+    /// @param newNonce The nonce set by `init`.
     event Init(uint256 newNonce);
+
+    /// @notice Emitted after a successful committee/config update.
+    /// @param nonce Applied digest nonce (`previous nonce + 1`).
+    /// @param committee New committee written to storage.
+    /// @param count Unique valid signatures from previous committee members.
+    /// @param digest EIP-712 digest that signers approved.
     event NewCommittee(uint256 indexed nonce, address[] committee, uint256 count, bytes32 digest);
 
     error InitFailed();
@@ -75,7 +83,8 @@ contract CommitteeSync {
         emit NewCommittee(digestNonce, committee, count, digest);
     }
 
-    /// @notice Sets the nonce while the committee still has only the initial member.
+    /// @notice Sets nonce before the first successful committee sync.
+    /// @dev Allowed only while committee size is 1, by that sole member, and with a higher nonce.
     /// @param newNonce The nonce to set (must be greater than the current nonce).
     function init(uint256 newNonce) external {
         bool allowed = committee.length == 1 && msg.sender == committee[0] && newNonce > nonce;
