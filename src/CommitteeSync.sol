@@ -23,7 +23,7 @@ contract CommitteeSync {
     uint256 public constant NOT_FOUND = type(uint256).max;
 
     address[] public committee;
-    mapping(address => CommitteeSyncConfig.StoredConfig) public config;
+    mapping(address => mapping(bytes32 => bytes)) public config;
     uint256 public nonce;
     uint256 public updated;
 

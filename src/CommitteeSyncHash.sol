@@ -10,10 +10,10 @@ import {CommitteeSyncConfig} from "./CommitteeSyncConfig.sol";
 /// @dev EIP-712 struct hashing with a name/version-only domain separator.
 library CommitteeSyncHash {
     string internal constant NAME = "OrbsCommitteeSync";
-    string internal constant VERSION = "0";
+    string internal constant VERSION = "1";
 
     string internal constant EIP712_DOMAIN_TYPE = "EIP712Domain(string name,string version)";
-    string internal constant CONFIG_TYPE = "Config(address account,uint8 version,bytes value)";
+    string internal constant CONFIG_TYPE = "Config(address account,bytes32 key,bytes value)";
     string internal constant DIGEST_TYPE = "Digest(uint256 nonce,address[] committee,Config[] config)";
 
     bytes32 public constant EIP712_DOMAIN_TYPEHASH = keccak256(bytes(EIP712_DOMAIN_TYPE));
@@ -47,7 +47,7 @@ library CommitteeSyncHash {
         bytes32[] memory hashes = new bytes32[](newConfig.length);
         for (uint256 i; i < newConfig.length; i++) {
             hashes[i] = keccak256(
-                abi.encode(CONFIG_TYPEHASH, newConfig[i].account, newConfig[i].version, keccak256(newConfig[i].value))
+                abi.encode(CONFIG_TYPEHASH, newConfig[i].account, newConfig[i].key, keccak256(newConfig[i].value))
             );
         }
         return keccak256(abi.encodePacked(hashes));

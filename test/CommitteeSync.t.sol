@@ -327,19 +327,20 @@ contract CommitteeSyncTest is Test {
     function test_sync_setsConfig() public {
         address[] memory newCommittee = arr(5, 1);
         CommitteeSyncConfig.Config[] memory newConfig = new CommitteeSyncConfig.Config[](2);
-        newConfig[0] = CommitteeSyncConfig.Config({account: vm.addr(100), version: 1, value: abi.encode(uint256(123))});
-        newConfig[1] = CommitteeSyncConfig.Config({account: vm.addr(101), version: 2, value: bytes("hi")});
+        bytes32 keyApproval = keccak256("cosigner.approval.v1");
+        bytes32 keyLimits = keccak256("cosigner.limits.v1");
+        address signer = vm.addr(100);
+        newConfig[0] = CommitteeSyncConfig.Config({account: signer, key: keyApproval, value: abi.encode(uint256(123))});
+        newConfig[1] = CommitteeSyncConfig.Config({account: signer, key: keyLimits, value: bytes("hi")});
 
         bytes[] memory sigs = new bytes[](1);
         sigs[0] = signDigest(deployerKey, newCommittee, newConfig, nextNonce());
         committeeSync.sync(newCommittee, newConfig, sigs);
 
-        (uint8 version100, bytes memory value100) = committeeSync.config(vm.addr(100));
-        (uint8 version101, bytes memory value101) = committeeSync.config(vm.addr(101));
-        assertEq(value100, abi.encode(uint256(123)));
-        assertEq(value101, bytes("hi"));
-        assertEq(version100, 1);
-        assertEq(version101, 2);
+        bytes memory approval = committeeSync.config(signer, keyApproval);
+        bytes memory limits = committeeSync.config(signer, keyLimits);
+        assertEq(approval, abi.encode(uint256(123)));
+        assertEq(limits, bytes("hi"));
     }
 
     function test_updated_setAndNotChangedOnRevert() public {
