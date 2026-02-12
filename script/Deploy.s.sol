@@ -8,7 +8,7 @@ import "src/CommitteeSync.sol";
 contract Deploy is Script {
     function run() public returns (address committeeSync) {
         address owner = vm.envAddress("OWNER");
-        bytes32 salt = vm.envOr("SALT", bytes32(0x75e3be5a0037b707320866345cfb398f5401fc5736077dcdadfa9e4c6737210b));
+        bytes32 salt = vm.envOr("SALT", bytes32(0x1b565f5306ac3a9d0ab31d6806b69921fc5ed54fa6c6822015ac021a422cb025));
         bytes32 initCodeHash = hashInitCode(type(CommitteeSync).creationCode, abi.encode(owner));
         console.logBytes32(initCodeHash);
 
