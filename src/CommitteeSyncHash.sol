@@ -13,7 +13,7 @@ library CommitteeSyncHash {
     string internal constant VERSION = "1";
 
     string internal constant EIP712_DOMAIN_TYPE = "EIP712Domain(string name,string version)";
-    string internal constant CONFIG_TYPE = "Config(address account,bytes32 key,bytes value)";
+    string internal constant CONFIG_TYPE = "Config(bytes32 key,address account,bytes value)";
     string internal constant DIGEST_TYPE = "Digest(uint256 nonce,address[] committee,Config[] config)";
 
     bytes32 public constant EIP712_DOMAIN_TYPEHASH = keccak256(bytes(EIP712_DOMAIN_TYPE));
@@ -47,7 +47,7 @@ library CommitteeSyncHash {
         bytes32[] memory hashes = new bytes32[](newConfig.length);
         for (uint256 i; i < newConfig.length; i++) {
             hashes[i] = keccak256(
-                abi.encode(CONFIG_TYPEHASH, newConfig[i].account, newConfig[i].key, keccak256(newConfig[i].value))
+                abi.encode(CONFIG_TYPEHASH, newConfig[i].key, newConfig[i].account, keccak256(newConfig[i].value))
             );
         }
         return keccak256(abi.encodePacked(hashes));

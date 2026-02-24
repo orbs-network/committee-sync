@@ -21,7 +21,7 @@ Synchronizes committee membership and per-address config across EVM chains using
 - `committee = newCommittee`
 - `nonce++`
 - `updated = block.timestamp`
-- Each provided `Config` item: `config[account][key] = value`
+- Each provided `Config` item: `config[key][account] = value`
 - Keys not present in `newConfig` are untouched.
 - To clear a value, include the same `account + key` with `value = 0x`.
 
@@ -39,7 +39,7 @@ Synchronizes committee membership and per-address config across EVM chains using
 - `sync(address[] newCommittee, Config[] newConfig, bytes[] sigs)`
 - `syncs(Sync[] batch)` where `Sync = {committee, config, sigs}`
 - `hash(uint256 digestNonce, address[] newCommittee, Config[] newConfig)`
-- `Config = {account, key, value}` stored in `config[account][key]`.
+- `Config = {key, account, value}` stored in `config[key][account]`.
 - Libraries: `CommitteeSyncHash`, `CommitteeSyncConfig`, `CommitteeSyncValidation`.
 
 ## 🚀 Deploy

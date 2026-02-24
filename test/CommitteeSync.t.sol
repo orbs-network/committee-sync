@@ -337,8 +337,8 @@ contract CommitteeSyncTest is Test {
         sigs[0] = signDigest(deployerKey, newCommittee, newConfig, nextNonce());
         committeeSync.sync(newCommittee, newConfig, sigs);
 
-        bytes memory approval = committeeSync.config(signer, keyApproval);
-        bytes memory limits = committeeSync.config(signer, keyLimits);
+        bytes memory approval = committeeSync.config(keyApproval, signer);
+        bytes memory limits = committeeSync.config(keyLimits, signer);
         assertEq(approval, abi.encode(uint256(123)));
         assertEq(limits, bytes("hi"));
     }
