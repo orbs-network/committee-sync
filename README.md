@@ -31,13 +31,16 @@ Synchronizes committee membership and per-address config across EVM chains using
 - `syncs()` is atomic: if one step fails, the whole transaction reverts.
 
 ## 🧰 Bootstrap (`init`)
-- `init(newNonce)` works only while committee size is still `1`.
+- `init(initialCommittee, initialConfig, newNonce)` works only while committee size is still `1`.
 - Caller must be that sole initial member.
 - `newNonce` must be greater than the current nonce.
+- `initialCommittee` must pass the normal committee validation rules.
+- Each provided `initialConfig` item is stored with the same semantics as `sync`.
 
 ## 📦 Interfaces
 - `sync(address[] newCommittee, Config[] newConfig, bytes[] sigs)`
-- `syncs(Sync[] batch)` where `Sync = {committee, config, sigs}`
+- `syncs(Update[] batch)` where `Update = {committee, config, sigs}`
+- `init(address[] initialCommittee, Config[] initialConfig, uint256 newNonce)`
 - `hash(uint256 digestNonce, address[] newCommittee, Config[] newConfig)`
 - `Config = {key, account, value}` stored in `config[key][account]`.
 - Libraries: `CommitteeSyncHash`, `CommitteeSyncConfig`, `CommitteeSyncValidation`.

@@ -27,21 +27,21 @@ contract CommitteeSync {
     uint256 public nonce;
     uint256 public updated;
 
-    /// @notice Emitted when `init` updates nonce before the first committee sync.
+    /// @notice Emitted when `init` bootstraps the initial committee/config and sets nonce.
     /// @param newNonce The nonce set by `init`.
     event Init(uint256 newNonce);
 
     /// @notice Emitted after a successful committee/config update.
-    /// @param nonce Applied digest nonce (`previous nonce + 1`).
+    /// @param nonce Applied nonce for the written committee/config state.
     /// @param committee New committee written to storage.
     /// @param count Unique valid signatures from previous committee members.
     /// @param digest EIP-712 digest that signers approved.
-    event NewCommittee(uint256 indexed nonce, address[] committee, uint256 count, bytes32 digest);
+    event Sync(uint256 indexed nonce, address[] committee, uint256 count, bytes32 digest);
 
     error InitFailed();
     error InsufficientCount(uint256 count);
 
-    struct Sync {
+    struct Update {
         address[] committee;
         CommitteeSyncConfig.Config[] config;
         bytes[] sigs;
@@ -54,7 +54,7 @@ contract CommitteeSync {
 
     /// @notice Applies multiple sequential committee updates in one call.
     /// @param batch Target committee members and signatures for each step.
-    function syncs(Sync[] memory batch) external {
+    function syncs(Update[] memory batch) external {
         for (uint256 i; i < batch.length; i++) {
             sync(batch[i].committee, batch[i].config, batch[i].sigs);
         }
@@ -80,17 +80,30 @@ contract CommitteeSync {
         nonce = digestNonce;
         updated = block.timestamp;
         CommitteeSyncConfig.save(config, newConfig);
-        emit NewCommittee(digestNonce, committee, count, digest);
+        emit Sync(digestNonce, committee, count, digest);
     }
 
-    /// @notice Sets nonce before the first successful committee sync.
+    /// @notice Sets nonce and bootstraps the initial committee/config before the first successful committee sync.
     /// @dev Allowed only while committee size is 1, by that sole member, and with a higher nonce.
+    /// @param initialCommittee The committee to write during bootstrap.
+    /// @param initialConfig The config to write during bootstrap.
     /// @param newNonce The nonce to set (must be greater than the current nonce).
-    function init(uint256 newNonce) external {
+    function init(
+        address[] memory initialCommittee,
+        CommitteeSyncConfig.Config[] memory initialConfig,
+        uint256 newNonce
+    ) external {
         bool allowed = committee.length == 1 && msg.sender == committee[0] && newNonce > nonce;
         if (!allowed) revert InitFailed();
+
+        CommitteeSyncValidation.validate(initialCommittee);
+        bytes32 digest = hash(newNonce, initialCommittee, initialConfig);
+        committee = initialCommittee;
         nonce = newNonce;
+        updated = block.timestamp;
+        CommitteeSyncConfig.save(config, initialConfig);
         emit Init(newNonce);
+        emit Sync(newNonce, committee, 1, digest);
     }
 
     /// @notice Returns the current committee array.

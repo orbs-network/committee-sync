@@ -11,6 +11,9 @@ import "src/CommitteeSyncHash.sol";
 import "src/CommitteeSyncValidation.sol";
 
 contract CommitteeSyncTest is Test {
+    event Init(uint256 newNonce);
+    event Sync(uint256 indexed nonce, address[] committee, uint256 count, bytes32 digest);
+
     address deployer;
     uint256 deployerKey;
     CommitteeSync public committeeSync;
@@ -31,6 +34,19 @@ contract CommitteeSyncTest is Test {
 
     function emptyConfig() internal pure returns (CommitteeSyncConfig.Config[] memory config) {
         config = new CommitteeSyncConfig.Config[](0);
+    }
+
+    function sampleConfig()
+        internal
+        pure
+        returns (CommitteeSyncConfig.Config[] memory config, bytes32 keyApproval, bytes32 keyLimits, address signer)
+    {
+        config = new CommitteeSyncConfig.Config[](2);
+        keyApproval = keccak256("cosigner.approval.v1");
+        keyLimits = keccak256("cosigner.limits.v1");
+        signer = vm.addr(100);
+        config[0] = CommitteeSyncConfig.Config({account: signer, key: keyApproval, value: abi.encode(uint256(123))});
+        config[1] = CommitteeSyncConfig.Config({account: signer, key: keyLimits, value: bytes("hi")});
     }
 
     function nextNonce() internal view returns (uint256) {
@@ -263,9 +279,9 @@ contract CommitteeSyncTest is Test {
         sigs2[1] = signDigest(2, committee2, emptyConfig(), secondNonce);
         sigs2[2] = signDigest(3, committee2, emptyConfig(), secondNonce);
 
-        CommitteeSync.Sync[] memory batch = new CommitteeSync.Sync[](2);
-        batch[0] = CommitteeSync.Sync({committee: committee1, config: emptyConfig(), sigs: sigs1});
-        batch[1] = CommitteeSync.Sync({committee: committee2, config: emptyConfig(), sigs: sigs2});
+        CommitteeSync.Update[] memory batch = new CommitteeSync.Update[](2);
+        batch[0] = CommitteeSync.Update({committee: committee1, config: emptyConfig(), sigs: sigs1});
+        batch[1] = CommitteeSync.Update({committee: committee2, config: emptyConfig(), sigs: sigs2});
 
         committeeSync.syncs(batch);
 
@@ -276,7 +292,7 @@ contract CommitteeSyncTest is Test {
     function test_syncs_emptyNoop() public {
         address[] memory beforeCommittee = committeeSync.getCommittee();
         uint256 beforeNonce = committeeSync.nonce();
-        CommitteeSync.Sync[] memory batch = new CommitteeSync.Sync[](0);
+        CommitteeSync.Update[] memory batch = new CommitteeSync.Update[](0);
 
         committeeSync.syncs(batch);
 
@@ -297,9 +313,9 @@ contract CommitteeSyncTest is Test {
         sigs2[0] = signDigest(1, committee2, emptyConfig(), secondNonce);
         sigs2[1] = signDigest(2, committee2, emptyConfig(), secondNonce);
 
-        CommitteeSync.Sync[] memory batch = new CommitteeSync.Sync[](2);
-        batch[0] = CommitteeSync.Sync({committee: committee1, config: emptyConfig(), sigs: sigs1});
-        batch[1] = CommitteeSync.Sync({committee: committee2, config: emptyConfig(), sigs: sigs2});
+        CommitteeSync.Update[] memory batch = new CommitteeSync.Update[](2);
+        batch[0] = CommitteeSync.Update({committee: committee1, config: emptyConfig(), sigs: sigs1});
+        batch[1] = CommitteeSync.Update({committee: committee2, config: emptyConfig(), sigs: sigs2});
 
         address[] memory beforeCommittee = committeeSync.getCommittee();
         uint256 beforeNonce = committeeSync.nonce();
@@ -326,12 +342,8 @@ contract CommitteeSyncTest is Test {
 
     function test_sync_setsConfig() public {
         address[] memory newCommittee = arr(5, 1);
-        CommitteeSyncConfig.Config[] memory newConfig = new CommitteeSyncConfig.Config[](2);
-        bytes32 keyApproval = keccak256("cosigner.approval.v1");
-        bytes32 keyLimits = keccak256("cosigner.limits.v1");
-        address signer = vm.addr(100);
-        newConfig[0] = CommitteeSyncConfig.Config({account: signer, key: keyApproval, value: abi.encode(uint256(123))});
-        newConfig[1] = CommitteeSyncConfig.Config({account: signer, key: keyLimits, value: bytes("hi")});
+        (CommitteeSyncConfig.Config[] memory newConfig, bytes32 keyApproval, bytes32 keyLimits, address signer) =
+            sampleConfig();
 
         bytes[] memory sigs = new bytes[](1);
         sigs[0] = signDigest(deployerKey, newCommittee, newConfig, nextNonce());
@@ -446,22 +458,43 @@ contract CommitteeSyncTest is Test {
         committeeSync.sync(newCommittee, emptyConfig(), sigs);
     }
 
-    function test_init_initialMemberOnlyBeforeCommittee() public {
+    function test_init_bootstrapsCommittee() public {
+        address[] memory initialCommittee = arr(5, 1);
+        (CommitteeSyncConfig.Config[] memory initialConfig, bytes32 keyApproval, bytes32 keyLimits, address signer) =
+            sampleConfig();
+        bytes32 digest = committeeSync.hash(100, initialCommittee, initialConfig);
+
+        vm.warp(1000);
         vm.prank(deployer);
-        committeeSync.init(100);
+        vm.expectEmit(address(committeeSync));
+        emit Init(100);
+        vm.expectEmit(address(committeeSync));
+        emit Sync(100, initialCommittee, 1, digest);
+        committeeSync.init(initialCommittee, initialConfig, 100);
+
         assertEq(committeeSync.nonce(), 100);
+        assertEq(committeeSync.getCommittee(), initialCommittee);
+        assertEq(committeeSync.updated(), 1000);
+        assertFalse(committeeSync.isMember(deployer));
+        assertEq(committeeSync.config(keyApproval, signer), abi.encode(uint256(123)));
+        assertEq(committeeSync.config(keyLimits, signer), bytes("hi"));
 
         address[] memory newCommittee = arr(5, 1);
-        bytes[] memory sigs = new bytes[](1);
-        sigs[0] = signDigest(deployerKey, newCommittee, emptyConfig(), 101);
+        newCommittee[4] = vm.addr(10);
+        bytes[] memory sigs = new bytes[](3);
+        sigs[0] = signDigest(1, newCommittee, emptyConfig(), 101);
+        sigs[1] = signDigest(2, newCommittee, emptyConfig(), 101);
+        sigs[2] = signDigest(3, newCommittee, emptyConfig(), 101);
         committeeSync.sync(newCommittee, emptyConfig(), sigs);
+
         assertEq(committeeSync.nonce(), 101);
+        assertEq(committeeSync.getCommittee(), newCommittee);
     }
 
     function test_init_revertNotInitialMember() public {
         vm.prank(vm.addr(0xB0B));
         vm.expectRevert(CommitteeSync.InitFailed.selector);
-        committeeSync.init(1);
+        committeeSync.init(arr(5, 1), emptyConfig(), 1);
     }
 
     function test_init_revertCommitteeInitialized() public {
@@ -472,12 +505,18 @@ contract CommitteeSyncTest is Test {
 
         vm.prank(deployer);
         vm.expectRevert(CommitteeSync.InitFailed.selector);
-        committeeSync.init(10);
+        committeeSync.init(arr(5, 10), emptyConfig(), 10);
     }
 
     function test_init_revertInvalidNonce() public {
         vm.prank(deployer);
         vm.expectRevert(CommitteeSync.InitFailed.selector);
-        committeeSync.init(0);
+        committeeSync.init(arr(5, 1), emptyConfig(), 0);
+    }
+
+    function test_init_revertInvalidInitialCommittee() public {
+        vm.prank(deployer);
+        vm.expectRevert(CommitteeSyncValidation.InvalidCommittee.selector);
+        committeeSync.init(arr(1, 1), emptyConfig(), 1);
     }
 }
