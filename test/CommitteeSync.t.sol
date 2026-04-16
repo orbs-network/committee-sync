@@ -491,6 +491,26 @@ contract CommitteeSyncTest is Test {
         assertEq(committeeSync.getCommittee(), newCommittee);
     }
 
+    function test_init_threeMembersCanExpandToTen() public {
+        address[] memory committee3 = arr(3, 1);
+
+        vm.prank(deployer);
+        committeeSync.init(committee3, emptyConfig(), 100);
+        assertEq(committeeSync.getCommittee(), committee3);
+
+        address[] memory committee10 = arr(10, 1);
+        uint256 digestNonce = nextNonce();
+        bytes[] memory sigs = new bytes[](3);
+        for (uint256 i; i < sigs.length; i++) {
+            sigs[i] = signDigest(i + 1, committee10, emptyConfig(), digestNonce);
+        }
+
+        committeeSync.sync(committee10, emptyConfig(), sigs);
+
+        assertEq(committeeSync.nonce(), digestNonce);
+        assertEq(committeeSync.getCommittee(), committee10);
+    }
+
     function test_init_revertNotInitialMember() public {
         vm.prank(vm.addr(0xB0B));
         vm.expectRevert(CommitteeSync.InitFailed.selector);
