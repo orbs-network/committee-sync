@@ -355,6 +355,34 @@ contract CommitteeSyncTest is Test {
         assertEq(limits, bytes("hi"));
     }
 
+    function test_sync_sameCommitteeAndConfigAdvancesNonceAndKeepsState() public {
+        address[] memory sameCommittee = arr(5, 1);
+        (CommitteeSyncConfig.Config[] memory sameConfig, bytes32 keyApproval, bytes32 keyLimits, address signer) =
+            sampleConfig();
+
+        bytes[] memory initialSigs = new bytes[](1);
+        initialSigs[0] = signDigest(deployerKey, sameCommittee, sameConfig, nextNonce());
+
+        vm.warp(1000);
+        committeeSync.sync(sameCommittee, sameConfig, initialSigs);
+
+        uint256 beforeNonce = committeeSync.nonce();
+        uint256 digestNonce = nextNonce();
+        bytes[] memory sigs = new bytes[](3);
+        sigs[0] = signDigest(1, sameCommittee, sameConfig, digestNonce);
+        sigs[1] = signDigest(2, sameCommittee, sameConfig, digestNonce);
+        sigs[2] = signDigest(3, sameCommittee, sameConfig, digestNonce);
+
+        vm.warp(2000);
+        committeeSync.sync(sameCommittee, sameConfig, sigs);
+
+        assertEq(committeeSync.nonce(), beforeNonce + 1);
+        assertEq(committeeSync.updated(), 2000);
+        assertEq(committeeSync.getCommittee(), sameCommittee);
+        assertEq(committeeSync.config(keyApproval, signer), abi.encode(uint256(123)));
+        assertEq(committeeSync.config(keyLimits, signer), bytes("hi"));
+    }
+
     function test_updated_setAndNotChangedOnRevert() public {
         address[] memory initialCommittee = arr(5, 1);
         bytes[] memory initialSigs = new bytes[](1);
