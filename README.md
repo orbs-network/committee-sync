@@ -49,5 +49,5 @@ Synchronizes committee membership and per-address config across EVM chains using
 ```bash
 forge script script/Deploy.s.sol:Deploy --broadcast --verify
 ```
-- `OWNER` is required.
+- `ETH_FROM` is required.
 - `SALT` is optional (script has a built-in default).
